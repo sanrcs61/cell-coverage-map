@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cell Coverage Map</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 10px; font-family: Arial, sans-serif; }
+        .container { display: flex; flex-direction: column; height: 100vh; }
+        .controls { width: 100%; padding: 10px; background: #f5f5f5; border-radius: 8px; margin-bottom: 10px; }
+        .map-container { flex-grow: 1; min-height: 300px; }
+        #map { height: 100%; border-radius: 8px; }
+        .input-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        button { width: 100%; padding: 10px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px; }
+        button:hover { background: #45a049; }
+        .settings-panel { margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd; }
+        .network-settings { margin-bottom: 15px; }
+        .color-input { display: flex; align-items: center; gap: 10px; }
+        .color-input input[type="color"] { width: 50px; height: 30px; padding: 0; }
+        .angle-display { 
+            font-size: 18px; 
+            text-align: center; 
+            margin: 10px 0; 
+            padding: 10px;
+            background: #fff;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        @media (min-width: 768px) {
+            .container { flex-direction: row; gap: 20px; }
+            .controls { width: 300px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="controls">
+            <h2>Cell Site Parameters</h2>
+            <div class="angle-display">
+                Direction: <span id="angleDisplay">0°</span> from North
+            </div>
+            <div class="input-group">
+                <label for="network">Network Type:</label>
+                <select id="network" onchange="updateColorFromDefault()">
+                    <option value="2G">2G</option>
+                    <option value="3G">3G</option>
+                    <option value="4G" selected>4G</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label>Location:</label>
+                <input type="number" id="lat" placeholder="Latitude" step="any">
+                <input type="number" id="lon" placeholder="Longitude" step="any">
+            </div>
+            <div class="input-group">
+                <label for="angle">Direction (0-360°):</label>
+                <input type="number" id="angle" value="0" min="0" max="360" 
+                       oninput="updateAngleDisplay(this.value)">
+            </div>
+            <div class="input-group">
+                <label for="sectorColor">Sector Color:</label>
+                <div class="color-input">
+                    <input type="color" id="sectorColor" onchange="updateDefaultColor()">
+                    <button onclick="resetDefaultColor()" style="width: auto;">Reset Color</button>
+                </div>
+            </div>
+            <button onclick="generateCoverage()">Generate Coverage</button>
+            <button onclick="getUserLocation()">Get My Location</button>
+
+            <div class="settings-panel">
+                <h3>Default Settings</h3>
+                <div class="network-settings">
+                    <h4>2G Settings</h4>
+                    <label>Radius (km):</label>
+                    <input type="number" id="2g-radius" value="5" step="0.1">
+                    <label>Beam Width (°):</label>
+                    <input type="number" id="2g-beam" value="120" min="0" max="360">
+                </div>
+                <div class="network-settings">
+                    <h4>3G Settings</h4>
+                    <label>Radius (km):</label>
+                    <input type="number" id="3g-radius" value="3" step="0.1">
+                    <label>Beam Width (°):</label>
+                    <input type="number" id="3g-beam" value="120" min="0" max="360">
+                </div>
+                <div class="network-settings">
+                    <h4>4G Settings</h4>
+                    <label>Radius (km):</label>
+                    <input type="number" id="4g-radius" value="2" step="0.1">
+                    <label>Beam Width (°):</label>
+                    <input type="number" id="4g-beam" value="120" min="0" max="360">
+                </div>
+            </div>
+        </div>
+        <div class="map-container">
+            <div id="map"></div>
+        </div>
+    </div>
+
+    <script>
+        let map;
+        let currentCoverage;
+        let userLocationMarker;
+        let defaultSettings = {
+            '2G': { radius: 5, beamWidth: 120, color: '#FF0000' },
+            '3G': { radius: 3, beamWidth: 120, color: '#00FF00' },
+            '4G': { radius: 2, beamWidth: 120, color: '#0000FF' }
+        };
+
+        function initMap() {
+            map = L.map('map').setView([0, 0], 13);
+            L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+            }).addTo(map);
+            updateColorFromDefault();
+            
+            // Add zoom control
+            L.control.zoom({
+                position: 'bottomright'
+            }).addTo(map);
+        }
+
+        function updateAngleDisplay(angle) {
+            document.getElementById('angleDisplay').textContent = angle + '°';
+        }
+
+        function updateColorFromDefault() {
+            const network = document.getElementById('network').value;
+            document.getElementById('sectorColor').value = defaultSettings[network].color;
+        }
+
+        function updateDefaultColor() {
+            const network = document.getElementById('network').value;
+            defaultSettings[network].color = document.getElementById('sectorColor').value;
+        }
+
+        function resetDefaultColor() {
+            const network = document.getElementById('network').value;
+            const originalColors = {
+                '2G': '#FF0000',
+                '3G': '#00FF00',
+                '4G': '#0000FF'
+            };
+            defaultSettings[network].color = originalColors[network];
+            document.getElementById('sectorColor').value = originalColors[network];
+        }
+
+        function generateCoverage() {
+            const lat = parseFloat(document.getElementById('lat').value);
+            const lon = parseFloat(document.getElementById('lon').value);
+            const angle = parseFloat(document.getElementById('angle').value);
+            const network = document.getElementById('network').value;
+
+            if (isNaN(lat) || isNaN(lon)) {
+                alert('Please enter valid coordinates');
+                return;
+            }
+
+            if (currentCoverage) {
+                map.removeLayer(currentCoverage);
+            }
+
+            map.setView([lat, lon], 13);
+
+            const radius = parseFloat(document.getElementById(network.toLowerCase() + '-radius').value) * 1000;
+            const beamWidth = parseFloat(document.getElementById(network.toLowerCase() + '-beam').value);
+            const sectorColor = document.getElementById('sectorColor').value;
+
+            const points = calculateCoveragePoints(lat, lon, radius, angle, beamWidth);
+            
+            currentCoverage = L.polygon(points, {
+                color: sectorColor,
+                fillColor: sectorColor,
+                fillOpacity: 0.3
+            }).addTo(map);
+
+            L.circleMarker([lat, lon], {
+                radius: 5,
+                color: 'black',
+                fillColor: 'red',
+                fillOpacity: 1
+            }).addTo(map);
+
+            // Add direction line
+            const radians = angle * Math.PI / 180; // Convert geographic angle directly to radians
+            const endLat = lat + (radius * 0.5 * Math.cos(radians)) / 111320;
+            const endLon = lon + (radius * 0.5 * Math.sin(radians)) / (111320 * Math.cos(lat * Math.PI / 180));
+
+            L.polyline([[lat, lon], [endLat, endLon]], {
+                color: 'red',
+                weight: 2,
+                dashArray: '5, 5'
+            }).addTo(map);
+        }
+
+        function calculateCoveragePoints(lat, lon, radius, angle, beamWidth) {
+            const points = [[lat, lon]];
+            const steps = 32;
+            // Modify the angle calculation to make 0° point North
+            // Convert geographic angle (0° = North, clockwise) to mathematical angle
+            const startAngle = (angle - beamWidth / 2) * Math.PI / 180;
+            const endAngle = (angle + beamWidth / 2) * Math.PI / 180;
+
+            for (let i = 0; i <= steps; i++) {
+                const currentAngle = startAngle + (endAngle - startAngle) * (i / steps);
+                const newLat = lat + (radius * Math.cos(currentAngle)) / 111320;
+                const newLon = lon + (radius * Math.sin(currentAngle)) / (111320 * Math.cos(lat * Math.PI / 180));
+                points.push([newLat, newLon]);
+            }
+            points.push([lat, lon]);
+            return points;
+        }
+
+        function getUserLocation() {
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    const userLat = position.coords.latitude;
+                    const userLon = position.coords.longitude;
+                    
+                    // Remove existing user location marker if it exists
+                    if (userLocationMarker) {
+                        map.removeLayer(userLocationMarker);
+                    }
+                    
+                    // Add new user location marker
+                    userLocationMarker = L.marker([userLat, userLon], {
+                        icon: L.icon({
+                            iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41],
+                            popupAnchor: [1, -34],
+                            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                            shadowSize: [41, 41]
+                        })
+                    }).addTo(map);
+                    
+                    userLocationMarker.bindPopup("Your Location").openPopup();
+                    
+                    // Center the map on the user's location
+                    map.setView([userLat, userLon], 13);
+                }, function(error) {
+                    console.error("Error getting user location:", error);
+                    alert("Unable to retrieve your location. Please check your browser settings.");
+                });
+            } else {
+                alert("Geolocation is not supported by your browser.");
+            }
+        }
+
+        initMap();
+    </script>
+</body>
+</html>
+
