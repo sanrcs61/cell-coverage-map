@@ -45,11 +45,9 @@
           outline: none;
           font-size: 15px;
         }
-
         .active, .collapsible:hover {
           background-color: #ccc;
         }
-
         .search-content {
           padding: 0 18px;
           background-color: white;
@@ -57,23 +55,44 @@
           overflow: hidden;
           transition: max-height 0.2s ease-out;
         }
+        .disclaimer-box {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+            font-size: 12px;
+            color: #666;
+        }
+        .clear-button {
+            background-color: #ff4444;
+            margin-top: 10px;
+        }
+        .clear-button:hover {
+            background-color: #cc0000;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="controls">
-            <h2>Cell Site Parameters</h2>
+            <h2 align="center">Cell direction calculator by Shakil</h2>
+            <h6 style="color: red;" align="center">Disclaimer: This is not final yet. Use with caution!</h6>
             <div class="angle-display">
                 Direction: <span id="angleDisplay">0°</span> from North
             </div>
             <div class="input-group collapsible-search">
-                <button onclick="toggleSearch()" class="collapsible">Advanced Search</button>
+                <button onclick="toggleSearch()" class="collapsible">Advanced Search (click to expand)</button>
                 <div class="search-content" style="display:none;">
                     <label for="operator">Operator:</label>
-                    <select id="operator">
-                        <option value="Grameenphone">Grameenphone</option>
-                        <!-- Add other operators here in the future -->
+                    <select id="operator" onchange="updateOperatorDisclaimer()">
+                        <option value="grameenphone">Grameenphone</option>
+                        <option value="robi">Robi</option>
+                        <option value="airtel">Airtel</option>
+                        <option value="banglalink">Banglalink</option>
+                        <option value="teletalk">Teletalk</option>
                     </select>
+                    <div id="disclaimerBox" class="disclaimer-box"></div>
                     <label for="lac">LAC:</label>
                     <input type="number" id="lac" placeholder="Location Area Code">
                     <label for="cellid">Cell ID:</label>
@@ -108,29 +127,33 @@
             </div>
             <button onclick="generateCoverage()">Generate Coverage</button>
             <button onclick="getUserLocation()">Get My Location</button>
+            <button onclick="clearAllCoverage()" class="clear-button">Clear All Coverage</button>
 
             <div class="settings-panel">
-                <h3>Default Settings</h3>
-                <div class="network-settings">
-                    <h4>2G Settings</h4>
-                    <label>Radius (km):</label>
-                    <input type="number" id="2g-radius" value="1.2" step="0.1">
-                    <label>Beam Width (°):</label>
-                    <input type="number" id="2g-beam" value="120" min="0" max="360">
-                </div>
-                <div class="network-settings">
-                    <h4>3G Settings</h4>
-                    <label>Radius (km):</label>
-                    <input type="number" id="3g-radius" value="0.8" step="0.1">
-                    <label>Beam Width (°):</label>
-                    <input type="number" id="3g-beam" value="120" min="0" max="360">
-                </div>
-                <div class="network-settings">
-                    <h4>4G Settings</h4>
-                    <label>Radius (km):</label>
-                    <input type="number" id="4g-radius" value="0.5" step="0.1">
-                    <label>Beam Width (°):</label>
-                    <input type="number" id="4g-beam" value="120" min="0" max="360">
+                <button onclick="toggleSettings()" class="collapsible">Default Settings (click to expand)</button>
+                <div class="settings-content" style="display:none;">
+                    <div class="network-settings">
+                        <h4>2G Settings</h4>
+                        <label>Radius (km):</label>
+                        <input type="number" id="2g-radius" value="1" step="0.1">
+                        <label>Beam Width (°):</label>
+                        <input type="number" id="2g-beam" value="120" min="0" max="360">
+                    </div>
+                
+                    <div class="network-settings">
+                        <h4>3G Settings</h4>
+                        <label>Radius (km):</label>
+                        <input type="number" id="3g-radius" value="0.8" step="0.1">
+                        <label>Beam Width (°):</label>
+                        <input type="number" id="3g-beam" value="120" min="0" max="360">
+                    </div>
+                    <div class="network-settings">
+                        <h4>4G Settings</h4>
+                        <label>Radius (km):</label>
+                        <input type="number" id="4g-radius" value="0.5" step="0.1">
+                        <label>Beam Width (°):</label>
+                        <input type="number" id="4g-beam" value="120" min="0" max="360">
+                    </div>
                 </div>
             </div>
         </div>
@@ -141,10 +164,20 @@
 
     <script>
         let map;
-        let currentCoverage;
+        let coverageLayers = [];
         let userLocationMarker;
+        let cellTowerData = {};
+        
+        const operatorDisclaimers = {
+            grameenphone: "Data source: Grameenphone Network Information (Updated Feb 2023)",
+            robi: "এখনো কোনো ডাটা আপলোড করা হয়নি",
+            airtel: "এখনো কোনো ডাটা আপলোড করা হয়নি",
+            banglalink: "এখনো কোনো ডাটা আপলোড করা হয়নি",
+            teletalk: "এখনো কোনো ডাটা আপলোড করা হয়নি"
+        };
+
         let defaultSettings = {
-            '2G': { radius: 1.2, beamWidth: 120, color: '#FF0000' },
+            '2G': { radius: 1, beamWidth: 120, color: '#FF0000' },
             '3G': { radius: 0.8, beamWidth: 120, color: '#00FF00' },
             '4G': { radius: 0.5, beamWidth: 120, color: '#0000FF' }
         };
@@ -157,10 +190,26 @@
             }).addTo(map);
             updateColorFromDefault();
             
-            // Add zoom control
             L.control.zoom({
                 position: 'bottomright'
             }).addTo(map);
+        }
+
+        function updateOperatorDisclaimer() {
+            const operator = document.getElementById('operator').value;
+            const disclaimer = operatorDisclaimers[operator];
+            document.getElementById('disclaimerBox').innerHTML = disclaimer;
+            loadOperatorData(operator);
+        }
+
+        function loadOperatorData(operator) {
+            fetch(`${operator}.json`)
+                .then(response => response.json())
+                .then(data => {
+                    cellTowerData[operator] = data;
+                    console.log(`Loaded ${operator} data:`, data[0]);
+                })
+                .catch(error => console.error(`Error loading ${operator} data:`, error));
         }
 
         function updateAngleDisplay(angle) {
@@ -199,48 +248,38 @@
                 return;
             }
 
-            if (currentCoverage) {
-                map.removeLayer(currentCoverage);
-            }
-
-            map.setView([lat, lon], 13);
-
             const radius = parseFloat(document.getElementById(network.toLowerCase() + '-radius').value) * 1000;
             const beamWidth = parseFloat(document.getElementById(network.toLowerCase() + '-beam').value);
             const sectorColor = document.getElementById('sectorColor').value;
 
             const points = calculateCoveragePoints(lat, lon, radius, angle, beamWidth);
             
-            currentCoverage = L.polygon(points, {
-                color: sectorColor,
-                fillColor: sectorColor,
-                fillOpacity: 0.3
-            }).addTo(map);
+            const coverageLayer = L.featureGroup([
+                L.polygon(points, {
+                    color: sectorColor,
+                    fillColor: sectorColor,
+                    fillOpacity: 0.3
+                }),
+                L.circleMarker([lat, lon], {
+                    radius: 5,
+                    color: 'black',
+                    fillColor: 'red',
+                    fillOpacity: 1
+                }),
+                L.polyline([[lat, lon], calculateDirectionEndPoint(lat, lon, radius, angle)], {
+                    color: 'red',
+                    weight: 2,
+                    dashArray: '5, 5'
+                })
+            ]).addTo(map);
 
-            L.circleMarker([lat, lon], {
-                radius: 5,
-                color: 'black',
-                fillColor: 'red',
-                fillOpacity: 1
-            }).addTo(map);
-
-            // Add direction line
-            const radians = angle * Math.PI / 180; // Convert geographic angle directly to radians
-            const endLat = lat + (radius * 0.5 * Math.cos(radians)) / 111320;
-            const endLon = lon + (radius * 0.5 * Math.sin(radians)) / (111320 * Math.cos(lat * Math.PI / 180));
-
-            L.polyline([[lat, lon], [endLat, endLon]], {
-                color: 'red',
-                weight: 2,
-                dashArray: '5, 5'
-            }).addTo(map);
+            coverageLayers.push(coverageLayer);
+            map.setView([lat, lon], 13);
         }
 
         function calculateCoveragePoints(lat, lon, radius, angle, beamWidth) {
             const points = [[lat, lon]];
             const steps = 32;
-            // Modify the angle calculation to make 0° point North
-            // Convert geographic angle (0° = North, clockwise) to mathematical angle
             const startAngle = (angle - beamWidth / 2) * Math.PI / 180;
             const endAngle = (angle + beamWidth / 2) * Math.PI / 180;
 
@@ -254,18 +293,42 @@
             return points;
         }
 
+        function calculateDirectionEndPoint(lat, lon, radius, angle) {
+            const radians = angle * Math.PI / 180;
+            const endLat = lat + (radius * 0.5 * Math.cos(radians)) / 111320;
+            const endLon = lon + (radius * 0.5 * Math.sin(radians)) / (111320 * Math.cos(lat * Math.PI / 180));
+            return [endLat, endLon];
+        }
+
+        function clearAllCoverage() {
+            coverageLayers.forEach(layer => map.removeLayer(layer));
+            coverageLayers = [];
+        }
+
+        function toggleSettings() {
+            const content = document.querySelector('.settings-content');
+            const button = document.querySelector('.settings-panel .collapsible');
+            if (content.style.maxHeight) {
+                content.style.maxHeight = null;
+                content.style.display = 'none';
+                button.classList.remove('active');
+            } else {
+                content.style.display = 'block';
+                content.style.maxHeight = content.scrollHeight + "px";
+                button.classList.add('active');
+            }
+        }
+
         function getUserLocation() {
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(function(position) {
                     const userLat = position.coords.latitude;
                     const userLon = position.coords.longitude;
                     
-                    // Remove existing user location marker if it exists
                     if (userLocationMarker) {
                         map.removeLayer(userLocationMarker);
                     }
                     
-                    // Add new user location marker
                     userLocationMarker = L.marker([userLat, userLon], {
                         icon: L.icon({
                             iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
@@ -278,8 +341,6 @@
                     }).addTo(map);
                     
                     userLocationMarker.bindPopup("Your Location").openPopup();
-                    
-                    // Center the map on the user's location
                     map.setView([userLat, userLon], 13);
                 }, function(error) {
                     console.error("Error getting user location:", error);
@@ -290,59 +351,51 @@
             }
         }
 
-        let cellTowerData = []; // This will store the JSON data
-
         function toggleSearch() {
-          const content = document.querySelector('.search-content');
-          const button = document.querySelector('.collapsible');
-          if (content.style.maxHeight) {
-            content.style.maxHeight = null;
-            content.style.display = 'none';
-            button.classList.remove('active');
-          } else {
-            content.style.display = 'block';
-            content.style.maxHeight = content.scrollHeight + "px";
-            button.classList.add('active');
-          }
-        }
-
-        function loadCellTowerData() {
-          fetch('GP_Feb_23.json')
-            .then(response => response.json())
-            .then(data => {
-              cellTowerData = data;
-              console.log('Cell tower data loaded:', cellTowerData[0]); // Log the first item in the array
-            })
-            .catch(error => console.error('Error loading cell tower data:', error));
+            const content = document.querySelector('.search-content');
+            const button = document.querySelector('.collapsible');
+            if (content.style.maxHeight) {
+                content.style.maxHeight = null;
+                content.style.display = 'none';
+                button.classList.remove('active');
+            } else {
+                content.style.display = 'block';
+                content.style.maxHeight = content.scrollHeight + "px";
+                button.classList.add('active');
+            }
         }
 
         function searchByCellInfo() {
             const lac = parseInt(document.getElementById('lac').value);
             const cellid = parseInt(document.getElementById('cellid').value);
             const operator = document.getElementById('operator').value;
+            const operatorData = cellTowerData[operator];
 
-            const matchedTower = cellTowerData.find(tower => tower.LAC === lac && tower.CELLID === cellid);
+            if (!operatorData) {
+                alert('No data available for selected operator');
+                return;
+            }
+
+            const matchedTower = operatorData.find(tower => tower.LAC === lac && tower.CELLID === cellid);
 
             if (matchedTower) {
                 document.getElementById('lat').value = matchedTower.LATITUDE;
                 document.getElementById('lon').value = matchedTower.LONGITUDE;
                 document.getElementById('network').value = matchedTower.Network;
-                // Update to use Direction instead of AZIMUTH
                 const direction = matchedTower.Direction || 0;
                 document.getElementById('angle').value = direction;
                 updateAngleDisplay(direction);
-                updateColorFromDefault(); // Update the color based on network type
+                updateColorFromDefault();
                 generateCoverage();
             } else {
                 alert('No matching cell tower found');
             }
         }
 
-
-        // Load cell tower data when the page loads
-        window.addEventListener('load', loadCellTowerData);
-
-        initMap();
+        window.addEventListener('load', () => {
+            initMap();
+            updateOperatorDisclaimer();
+        });
     </script>
 </body>
 </html>
