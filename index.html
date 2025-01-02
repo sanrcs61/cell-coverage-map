@@ -307,11 +307,11 @@
         }
 
         function loadCellTowerData() {
-          fetch('GP_Feb_23.json')
+          fetch('GP_Feb_23-okHZ7IqjBQmdY2ogP1OtriBu7eUnWP.json')
             .then(response => response.json())
             .then(data => {
               cellTowerData = data;
-              console.log('Cell tower data loaded');
+              console.log('Cell tower data loaded:', cellTowerData[0]); // Log the first item in the array
             })
             .catch(error => console.error('Error loading cell tower data:', error));
         }
@@ -327,8 +327,9 @@
             document.getElementById('lat').value = matchedTower.LATITUDE;
             document.getElementById('lon').value = matchedTower.LONGITUDE;
             document.getElementById('network').value = matchedTower.Network;
-            document.getElementById('angle').value = matchedTower.AZIMUTH || 0; // Set the angle (AZIMUTH)
-            updateAngleDisplay(matchedTower.AZIMUTH || 0); // Update the angle display
+            document.getElementById('angle').value = matchedTower.AZIMUTH || 0;
+            updateAngleDisplay(matchedTower.AZIMUTH || 0);
+            console.log('Matched tower:', matchedTower); // Add this line for debugging
             generateCoverage();
           } else {
             alert('No matching cell tower found');
@@ -342,3 +343,4 @@
     </script>
 </body>
 </html>
+
