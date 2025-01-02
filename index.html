@@ -317,24 +317,27 @@
         }
 
         function searchByCellInfo() {
-          const lac = parseInt(document.getElementById('lac').value);
-          const cellid = parseInt(document.getElementById('cellid').value);
-          const operator = document.getElementById('operator').value;
+            const lac = parseInt(document.getElementById('lac').value);
+            const cellid = parseInt(document.getElementById('cellid').value);
+            const operator = document.getElementById('operator').value;
 
-          const matchedTower = cellTowerData.find(tower => tower.LAC === lac && tower.CELLID === cellid);
+            const matchedTower = cellTowerData.find(tower => tower.LAC === lac && tower.CELLID === cellid);
 
-          if (matchedTower) {
-            document.getElementById('lat').value = matchedTower.LATITUDE;
-            document.getElementById('lon').value = matchedTower.LONGITUDE;
-            document.getElementById('network').value = matchedTower.Network;
-            document.getElementById('angle').value = matchedTower.AZIMUTH || 0;
-            updateAngleDisplay(matchedTower.AZIMUTH || 0);
-            console.log('Matched tower:', matchedTower); // Add this line for debugging
-            generateCoverage();
-          } else {
-            alert('No matching cell tower found');
-          }
+            if (matchedTower) {
+                document.getElementById('lat').value = matchedTower.LATITUDE;
+                document.getElementById('lon').value = matchedTower.LONGITUDE;
+                document.getElementById('network').value = matchedTower.Network;
+                // Update to use Direction instead of AZIMUTH
+                const direction = matchedTower.Direction || 0;
+                document.getElementById('angle').value = direction;
+                updateAngleDisplay(direction);
+                updateColorFromDefault(); // Update the color based on network type
+                generateCoverage();
+            } else {
+                alert('No matching cell tower found');
+            }
         }
+
 
         // Load cell tower data when the page loads
         window.addEventListener('load', loadCellTowerData);
@@ -343,4 +346,3 @@
     </script>
 </body>
 </html>
-
