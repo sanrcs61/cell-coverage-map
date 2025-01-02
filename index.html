@@ -34,6 +34,29 @@
             .container { flex-direction: row; gap: 20px; }
             .controls { width: 300px; }
         }
+        .collapsible {
+          background-color: #f1f1f1;
+          color: #444;
+          cursor: pointer;
+          padding: 10px;
+          width: 100%;
+          border: none;
+          text-align: left;
+          outline: none;
+          font-size: 15px;
+        }
+
+        .active, .collapsible:hover {
+          background-color: #ccc;
+        }
+
+        .search-content {
+          padding: 0 18px;
+          background-color: white;
+          max-height: 0;
+          overflow: hidden;
+          transition: max-height 0.2s ease-out;
+        }
     </style>
 </head>
 <body>
@@ -42,6 +65,21 @@
             <h2>Cell Site Parameters</h2>
             <div class="angle-display">
                 Direction: <span id="angleDisplay">0°</span> from North
+            </div>
+            <div class="input-group collapsible-search">
+                <button onclick="toggleSearch()" class="collapsible">Advanced Search</button>
+                <div class="search-content" style="display:none;">
+                    <label for="operator">Operator:</label>
+                    <select id="operator">
+                        <option value="Grameenphone">Grameenphone</option>
+                        <!-- Add other operators here in the future -->
+                    </select>
+                    <label for="lac">LAC:</label>
+                    <input type="number" id="lac" placeholder="Location Area Code">
+                    <label for="cellid">Cell ID:</label>
+                    <input type="number" id="cellid" placeholder="Cell Identifier">
+                    <button onclick="searchByCellInfo()">Search</button>
+                </div>
             </div>
             <div class="input-group">
                 <label for="network">Network Type:</label>
@@ -251,6 +289,52 @@
                 alert("Geolocation is not supported by your browser.");
             }
         }
+
+        let cellTowerData = []; // This will store the JSON data
+
+        function toggleSearch() {
+          const content = document.querySelector('.search-content');
+          const button = document.querySelector('.collapsible');
+          if (content.style.maxHeight) {
+            content.style.maxHeight = null;
+            content.style.display = 'none';
+            button.classList.remove('active');
+          } else {
+            content.style.display = 'block';
+            content.style.maxHeight = content.scrollHeight + "px";
+            button.classList.add('active');
+          }
+        }
+
+        function loadCellTowerData() {
+          fetch('GP_Feb_23.json')
+            .then(response => response.json())
+            .then(data => {
+              cellTowerData = data;
+              console.log('Cell tower data loaded');
+            })
+            .catch(error => console.error('Error loading cell tower data:', error));
+        }
+
+        function searchByCellInfo() {
+          const lac = parseInt(document.getElementById('lac').value);
+          const cellid = parseInt(document.getElementById('cellid').value);
+          const operator = document.getElementById('operator').value;
+
+          const matchedTower = cellTowerData.find(tower => tower.LAC === lac && tower.CELLID === cellid);
+
+          if (matchedTower) {
+            document.getElementById('lat').value = matchedTower.LATITUDE;
+            document.getElementById('lon').value = matchedTower.LONGITUDE;
+            document.getElementById('network').value = matchedTower.Network;
+            generateCoverage();
+          } else {
+            alert('No matching cell tower found');
+          }
+        }
+
+        // Load cell tower data when the page loads
+        window.addEventListener('load', loadCellTowerData);
 
         initMap();
     </script>
