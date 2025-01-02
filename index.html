@@ -203,27 +203,16 @@
         }
 
         function loadOperatorData(operator) {
-    const baseUrl = 'https://raw.githubusercontent.com/sanrcs61/cell-coverage-map/main/';
-    const url = `${baseUrl}${operator}.json`;
+            const baseUrl = 'https://raw.githubusercontent.com/sanrcs61/cell-coverage-map/main/';
+            fetch(`${baseUrl}${operator}.json`)
+                .then(response => response.json())
+                .then(data => {
+                    cellTowerData[operator] = data;
+                    console.log(`Loaded ${operator} data:`, data[0]);
+                })
+                .catch(error => console.error(`Error loading ${operator} data:`, error));
+        }
 
-    fetch(url)
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! Status: ${response.status} - ${response.statusText}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            cellTowerData[operator] = data;
-            console.log(`Loaded ${operator} data:`, data[0]);
-        })
-        .catch(error => {
-            console.error(`Error loading ${operator} data:`, error);
-            console.error(`URL tried: ${url}`);
-        });
-}
-
-        
         function updateAngleDisplay(angle) {
             document.getElementById('angleDisplay').textContent = angle + '°';
         }
