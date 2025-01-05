@@ -5,7 +5,7 @@ let userLocationMarker;
 let cellTowerData = {};
 
 const operatorDisclaimers = {
-    grameenphone: "Data source: Grameenphone Network Information (Updated Feb 2023)",
+    grameenphone: "ফেব্রুয়ারি ২০২৩ পর্যন্ত শুধুমাত্র রাজশাহী জেলার তথ্য পাওয়া যাবে",
     robi: "এখনো কোনো ডাটা আপলোড করা হয়নি",
     airtel: "এখনো কোনো ডাটা আপলোড করা হয়নি",
     banglalink: "এখনো কোনো ডাটা আপলোড করা হয়নি",
