@@ -183,11 +183,23 @@
         };
 
         function initMap() {
-            map = L.map('map').setView([0, 0], 13);
+            // Bangladesh's approximate center coordinates
+            const bangladeshCenter = [23.6850, 90.3563];
+            const defaultZoom = 7;
+
+            map = L.map('map').setView(bangladeshCenter, defaultZoom);
             L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
                 maxZoom: 20,
                 subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
             }).addTo(map);
+
+            // Add bounds to keep focus on Bangladesh
+            const bangladeshBounds = L.latLngBounds(
+                [20.7472, 88.0833], // Southwest coordinates
+                [26.6375, 92.6810]  // Northeast coordinates
+            );
+            map.setMaxBounds(bangladeshBounds);
+            
             updateColorFromDefault();
             
             L.control.zoom({
@@ -205,12 +217,23 @@
         function loadOperatorData(operator) {
             const baseUrl = 'https://raw.githubusercontent.com/sanrcs61/cell-coverage-map/main/';
             fetch(`${baseUrl}${operator}.json`)
-                .then(response => response.json())
-                .then(data => {
-                    cellTowerData[operator] = data;
-                    console.log(`Loaded ${operator} data:`, data[0]);
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
                 })
-                .catch(error => console.error(`Error loading ${operator} data:`, error));
+                .then(data => {
+                    if (!data || !Array.isArray(data)) {
+                        throw new Error('Invalid data format');
+                    }
+                    cellTowerData[operator] = data;
+                    console.log(`Successfully loaded ${operator} data with ${data.length} entries`);
+                })
+                .catch(error => {
+                    console.error(`Error loading ${operator} data:`, error);
+                    document.getElementById('disclaimerBox').innerHTML += `<br><span style="color: red;">Error loading data: ${error.message}</span>`;
+                });
         }
 
         function updateAngleDisplay(angle) {
@@ -373,7 +396,9 @@
             const operatorData = cellTowerData[operator];
 
             if (!operatorData) {
-                alert('No data available for selected operator');
+                // Try to load the data again before giving up
+                loadOperatorData(operator);
+                alert('Please wait while we load the data and try again in a few seconds.');
                 return;
             }
 
@@ -389,13 +414,15 @@
                 updateColorFromDefault();
                 generateCoverage();
             } else {
-                alert('No matching cell tower found');
+                alert(`No matching cell tower found for LAC: ${lac} and Cell ID: ${cellid}`);
             }
         }
 
         window.addEventListener('load', () => {
             initMap();
             updateOperatorDisclaimer();
+            // Pre-load the Grameenphone data
+            loadOperatorData('grameenphone');
         });
     </script>
 </body>
