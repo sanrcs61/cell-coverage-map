@@ -3,9 +3,10 @@ let map;
 let coverageLayers = [];
 let userLocationMarker;
 let cellTowerData = {};
+let cookieConsent = false;
 
 const operatorDisclaimers = {
-    grameenphone: "ফেব্রুয়ারি ২০২৩ পর্যন্ত শুধুমাত্র রাজশাহী জেলার তথ্য পাওয়া যাবে",
+    grameenphone: "Data source: Grameenphone Network Information (Updated Feb 2023)",
     robi: "এখনো কোনো ডাটা আপলোড করা হয়নি",
     airtel: "এখনো কোনো ডাটা আপলোড করা হয়নি",
     banglalink: "এখনো কোনো ডাটা আপলোড করা হয়নি",
@@ -179,34 +180,112 @@ function toggleSettings() {
 
 function getUserLocation() {
     if ("geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition(function(position) {
-            const userLat = position.coords.latitude;
-            const userLon = position.coords.longitude;
-            
-            if (userLocationMarker) {
-                map.removeLayer(userLocationMarker);
-            }
-            
-            userLocationMarker = L.marker([userLat, userLon], {
-                icon: L.icon({
-                    iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-                    iconSize: [25, 41],
-                    iconAnchor: [12, 41],
-                    popupAnchor: [1, -34],
-                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-                    shadowSize: [41, 41]
-                })
-            }).addTo(map);
-            
-            userLocationMarker.bindPopup("Your Location").openPopup();
-            map.setView([userLat, userLon], 13);
-        }, function(error) {
-            console.error("Error getting user location:", error);
-            alert("Unable to retrieve your location. Please check your browser settings.");
-        });
+        const consentMessage = 
+            "এই ওয়েবসাইট ব্যবহার করতে আপনাকে লোকেশন পারমিশন দিতে হবে। " +
+            "লোকেশন পারমিশন না দিলে অনেকসময় এটি ভুল তথ্য দিতে পারে তাই অনুগ্রহ করে OK তে " +
+            "ট্যাপ করুন এবং পরবর্তীতে Location পারমিশন দিন।";
+
+        if (confirm(consentMessage)) {
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    const userLat = position.coords.latitude;
+                    const userLon = position.coords.longitude;
+                    
+                    try {
+                        if (userLocationMarker) {
+                            map.removeLayer(userLocationMarker);
+                        }
+                        
+                        userLocationMarker = L.marker([userLat, userLon], {
+                            icon: L.icon({
+                                iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+                                iconSize: [25, 41],
+                                iconAnchor: [12, 41],
+                                popupAnchor: [1, -34],
+                                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                                shadowSize: [41, 41]
+                            })
+                        }).addTo(map);
+                        
+                        userLocationMarker.bindPopup("Your Location").openPopup();
+                        map.setView([userLat, userLon], 13);
+
+                        // Save location
+                        saveUserLocation(userLat, userLon);
+                        
+                    } catch (error) {
+                        console.error("Error handling location:", error);
+                        alert("There was an error displaying your location on the map.");
+                    }
+                },
+                function(error) {
+                    console.error("Error getting user location:", error);
+                    let errorMessage = "Unable to retrieve your location. ";
+                    
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMessage += "Location permission was denied.";
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            errorMessage += "Location information is unavailable.";
+                            break;
+                        case error.TIMEOUT:
+                            errorMessage += "Location request timed out.";
+                            break;
+                        default:
+                            errorMessage += "Please check your browser settings.";
+                    }
+                    
+                    alert(errorMessage);
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 5000,
+                    maximumAge: 0
+                }
+            );
+        }
     } else {
         alert("Geolocation is not supported by your browser.");
     }
+}
+
+function saveUserLocation(latitude, longitude) {
+    const locationData = {
+        latitude,
+        longitude,
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent
+    };
+
+    const scriptUrl = 'https://script.google.com/macros/s/AKfycbznkIMB80wWSoNc-kftPG1mbCR4NZT7iiRZ17IhQnBNn5lKbtx8TOcyaDYuf1Hkz6ab/exec';
+
+    // Create URL with parameters
+    const urlParams = new URLSearchParams(locationData);
+    const submitUrl = `${scriptUrl}?${urlParams.toString()}`;
+
+    // Use fetch with CORS mode
+    fetch(submitUrl, {
+        method: 'GET',
+        mode: 'no-cors'
+    })
+    .then(response => {
+        console.log('Location data sent successfully');
+        // Store in localStorage as backup
+        const storedLocations = JSON.parse(localStorage.getItem('userLocations') || '[]');
+        storedLocations.push(locationData);
+        localStorage.setItem('userLocations', JSON.stringify(storedLocations));
+    })
+    .catch(error => {
+        console.error('Error sending location data:', error);
+        // Store failed submission in localStorage
+        const failedSubmissions = JSON.parse(localStorage.getItem('failedLocationSubmissions') || '[]');
+        failedSubmissions.push(locationData);
+        localStorage.setItem('failedLocationSubmissions', JSON.stringify(failedSubmissions));
+    });
+
+    // Log the data being sent
+    console.log('Sending location data:', locationData);
 }
 
 function toggleSearch() {
@@ -252,9 +331,28 @@ function searchByCellInfo() {
     }
 }
 
+function showCookieNotice() {
+    if (!localStorage.getItem('cookieConsent')) {
+        document.getElementById('cookie-notice').style.display = 'block';
+    }
+}
+
+function acceptCookies() {
+    localStorage.setItem('cookieConsent', 'accepted');
+    document.getElementById('cookie-notice').style.display = 'none';
+    cookieConsent = true;
+}
+
+function declineCookies() {
+    localStorage.setItem('cookieConsent', 'declined');
+    document.getElementById('cookie-notice').style.display = 'none';
+    cookieConsent = false;
+}
+
 // Initialize when document is loaded
 window.addEventListener('load', () => {
     initMap();
     updateOperatorDisclaimer();
     loadOperatorData('grameenphone');
+    showCookieNotice();
 });
