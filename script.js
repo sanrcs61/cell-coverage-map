@@ -6,10 +6,10 @@ let cellTowerData = {};
 let cookieConsent = false;
 
 const operatorDisclaimers = {
-    grameenphone: "সেপ্টেম্বর ২০২৫ পর্যন্ত কিছু জেলার তথ্য পাওয়া যাবে",
-    robi: "অক্টোবর ২০২৫ সাল পর্যন্ত কিছু জেলার 2G ও 4G সেলের তথ্য পাওয়া যাবে। 4G এর জন্য ল্যাক এর স্থলে ট্যাক এবং সেল আইডি এর স্থলে eNB ID ও LCID একসাথে লিখে ইনপুট দিতে হবে। যেমন: eNB ID: 620086 ও LCID 21 হলে ইনপুট দিতে হবে 62008621",
-    airtel: "মার্চ ২০২৩ সাল পর্যন্ত শুধুমাত্র রাজশাহী জেলার 4G সেলের তথ্য পাওয়া যাবে। 4G এর জন্য ল্যাক এর স্থলে ট্যাক এবং সেল আইডি এর স্থলে eNB ID ও LCID একসাথে লিখে ইনপুট দিতে হবে। যেমন: eNB ID: 620086 ও LCID 21 হলে ইনপুট দিতে হবে 62008621",
-    banglalink: "আনুমানিক ২০২৪ সাল পর্যন্ত শুধুমাত্র রাজশাহী জেলার 4G ও 2G সেলের তথ্য পাওয়া যাবে।",
+    grameenphone: "সেপ্টেম্বর ২০২৫ পর্যন্ত কিছু জেলার তথ্য পাওয়া যাবে",
+    robi: "অক্টোবর ২০২৫ সাল পর্যন্ত কিছু জেলার 2G ও 4G সেলের তথ্য পাওয়া যাবে। 4G এর জন্য ল্যাক এর স্থলে ট্যাক এবং সেল আইডি এর স্থলে eNB ID ও LCID একসাথে লিখে ইনপুট দিতে হবে। যেমন: eNB ID: 620086 ও LCID 21 হলে ইনপুট দিতে হবে 62008621",
+    airtel: "মার্চ ২০২৩ সাল পর্যন্ত শুধুমাত্র রাজশাহী জেলার 4G সেলের তথ্য পাওয়া যাবে। 4G এর জন্য ল্যাক এর স্থলে ট্যাক এবং সেল আইডি এর স্থলে eNB ID ও LCID একসাথে লিখে ইনপুট দিতে হবে। যেমন: eNB ID: 620086 ও LCID 21 হলে ইনপুট দিতে হবে 62008621",
+    banglalink: "আনুমানিক ২০২৪ সাল পর্যন্ত শুধুমাত্র রাজশাহী জেলার 4G ও 2G সেলের তথ্য পাওয়া যাবে।",
     teletalk: "এখনো কোনো ডাটা আপলোড করা হয়নি"
 };
 
@@ -181,8 +181,8 @@ function toggleSettings() {
 function getUserLocation() {
     if ("geolocation" in navigator) {
         const consentMessage = 
-            "এই ওয়েবসাইট ব্যবহার করতে আপনাকে লোকেশন পারমিশন দিতে হবে। " +
-            "লোকেশন পারমিশন না দিলে অনেকসময় এটি ভুল তথ্য দিতে পারে তাই অনুগ্রহ করে OK তে " +
+            "এই ওয়েবসাইট ব্যবহার করতে আপনাকে লোকেশন পারমিশন দিতে হবে। " +
+            "লোকেশন পারমিশন না দিলে অনেকসময় এটি ভুল তথ্য দিতে পারে তাই অনুগ্রহ করে OK তে " +
             "ট্যাপ করুন এবং পরবর্তীতে Location পারমিশন দিন।";
 
         if (confirm(consentMessage)) {
@@ -315,7 +315,25 @@ function searchByCellInfo() {
         return;
     }
 
-    const matchedTower = operatorData.find(tower => tower.LAC === lac && tower.CELLID === cellid);
+    // First, try to find by LAC and Cell ID
+    let matchedTower = operatorData.find(tower => tower.LAC === lac && tower.CELLID === cellid);
+    let searchMethod = '';
+
+    if (matchedTower) {
+        searchMethod = 'LAC and Cell ID';
+    } else {
+        // If not found, search only by Cell ID
+        const matchedTowers = operatorData.filter(tower => tower.CELLID === cellid);
+        
+        if (matchedTowers.length === 1) {
+            matchedTower = matchedTowers[0];
+            searchMethod = 'Cell ID only';
+        } else if (matchedTowers.length > 1) {
+            // Multiple matches found
+            alert(`Found ${matchedTowers.length} towers with Cell ID: ${cellid}. Please specify LAC to narrow down the search.\n\nMatching LACs: ${matchedTowers.map(t => t.LAC).join(', ')}`);
+            return;
+        }
+    }
 
     if (matchedTower) {
         document.getElementById('lat').value = matchedTower.LATITUDE;
@@ -326,8 +344,12 @@ function searchByCellInfo() {
         updateAngleDisplay(direction);
         updateColorFromDefault();
         generateCoverage();
+        
+        // Show success message with search method used
+        const lacInfo = matchedTower.LAC ? ` (LAC: ${matchedTower.LAC})` : '';
+        alert(`Cell tower found using ${searchMethod}!\nCell ID: ${cellid}${lacInfo}\nNetwork: ${matchedTower.Network}`);
     } else {
-        alert(`No matching cell tower found for LAC: ${lac} and Cell ID: ${cellid}`);
+        alert(`No matching cell tower found for Cell ID: ${cellid}${lac ? ` and LAC: ${lac}` : ''}`);
     }
 }
 
