@@ -302,55 +302,41 @@ function toggleSearch() {
     }
 }
 
-function searchByCellInfo() {
-    const lac = parseInt(document.getElementById('lac').value);
-    const cellid = parseInt(document.getElementById('cellid').value);
-    const operator = document.getElementById('operator').value;
-    const operatorData = cellTowerData[operator];
+async function searchByCellInfo() {
+  const operator = document.getElementById("operator").value;
+  const lac = document.getElementById("lac").value.trim();
+  const cellid = document.getElementById("cellid").value.trim();
 
-    if (!operatorData) {
-        // Try to load the data again before giving up
-        loadOperatorData(operator);
-        alert('Please wait while we load the data and try again in a few seconds.');
-        return;
+  if (!lac || !cellid) {
+    alert("Please enter both LAC and Cell ID.");
+    return;
+  }
+
+  try {
+    const url = `https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/data/${operator}.json`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    const match = data.find(row => row.lac === lac && row.cellid === cellid);
+
+    if (!match) {
+      alert("Cell not found.");
+      return;
     }
 
-    // First, try to find by LAC and Cell ID
-    let matchedTower = operatorData.find(tower => tower.LAC === lac && tower.CELLID === cellid);
-    let searchMethod = '';
+    document.getElementById("lat").value = match.lat;
+    document.getElementById("lon").value = match.lon;
+    document.getElementById("angle").value = match.direction;
+    document.getElementById("network").value = match.network;
 
-    if (matchedTower) {
-        searchMethod = 'LAC and Cell ID';
-    } else {
-        // If not found, search only by Cell ID
-        const matchedTowers = operatorData.filter(tower => tower.CELLID === cellid);
-        
-        if (matchedTowers.length === 1) {
-            matchedTower = matchedTowers[0];
-            searchMethod = 'Cell ID only';
-        } else if (matchedTowers.length > 1) {
-            // Multiple matches found
-            alert(`Found ${matchedTowers.length} towers with Cell ID: ${cellid}. Please specify LAC to narrow down the search.\n\nMatching LACs: ${matchedTowers.map(t => t.LAC).join(', ')}`);
-            return;
-        }
-    }
+    updateAngleDisplay(match.direction);
+    updateColorFromDefault();
+    generateCoverage();
 
-    if (matchedTower) {
-        document.getElementById('lat').value = matchedTower.LATITUDE;
-        document.getElementById('lon').value = matchedTower.LONGITUDE;
-        document.getElementById('network').value = matchedTower.Network;
-        const direction = matchedTower.Direction || 0;
-        document.getElementById('angle').value = direction;
-        updateAngleDisplay(direction);
-        updateColorFromDefault();
-        generateCoverage();
-        
-        // Show success message with search method used
-        const lacInfo = matchedTower.LAC ? ` (LAC: ${matchedTower.LAC})` : '';
-        alert(`Cell tower found using ${searchMethod}!\nCell ID: ${cellid}${lacInfo}\nNetwork: ${matchedTower.Network}`);
-    } else {
-        alert(`No matching cell tower found for Cell ID: ${cellid}${lac ? ` and LAC: ${lac}` : ''}`);
-    }
+  } catch (err) {
+    alert("Error loading data. Check your internet connection.");
+    console.error(err);
+  }
 }
 
 function showCookieNotice() {
