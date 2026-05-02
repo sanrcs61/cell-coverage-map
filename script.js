@@ -52,7 +52,7 @@ function initMap() {
 }
 
 function loadOperatorData(operator) {
-    const baseUrl = 'https://sanrcs61.github.io/cell-coverage-map/';
+    const baseUrl = 'https://sanrcs61.github.io/cell-coverage-map/data/';
     fetch(`${baseUrl}${operator}.json`)
         .then(response => {
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -264,33 +264,33 @@ function searchByCellInfo() {
         return;
     }
 
-    let matchedTower = operatorData.find(tower => tower.LAC === lac && tower.CELLID === cellid);
+    let matchedTower = operatorData.find(tower => String(tower.lac) === String(lac) && String(tower.cellid) === String(cellid));
     let searchMethod = '';
 
     if (matchedTower) {
         searchMethod = 'LAC and Cell ID';
     } else {
-        const matchedTowers = operatorData.filter(tower => tower.CELLID === cellid);
+        const matchedTowers = operatorData.filter(tower => String(tower.cellid) === String(cellid));
         if (matchedTowers.length === 1) {
             matchedTower = matchedTowers[0];
             searchMethod = 'Cell ID only';
         } else if (matchedTowers.length > 1) {
-            alert(`Found ${matchedTowers.length} towers with Cell ID: ${cellid}. Please specify LAC.\n\nMatching LACs: ${matchedTowers.map(t => t.LAC).join(', ')}`);
+            alert(`Found ${matchedTowers.length} towers with Cell ID: ${cellid}. Please specify LAC.\n\nMatching LACs: ${matchedTowers.map(t => t.lac).join(', ')}`);
             return;
         }
     }
 
     if (matchedTower) {
-        document.getElementById('lat').value = matchedTower.LATITUDE;
-        document.getElementById('lon').value = matchedTower.LONGITUDE;
-        document.getElementById('network').value = matchedTower.Network;
-        const direction = matchedTower.Direction || 0;
+        document.getElementById('lat').value = matchedTower.lat;
+        document.getElementById('lon').value = matchedTower.lon;
+        document.getElementById('network').value = matchedTower.network;
+        const direction = matchedTower.direction || 0;
         document.getElementById('angle').value = direction;
         updateAngleDisplay(direction);
         updateColorFromDefault();
         generateCoverage();
-        const lacInfo = matchedTower.LAC ? ` (LAC: ${matchedTower.LAC})` : '';
-        alert(`Cell tower found using ${searchMethod}!\nCell ID: ${cellid}${lacInfo}\nNetwork: ${matchedTower.Network}`);
+        const lacInfo = matchedTower.lac ? ` (LAC: ${matchedTower.lac})` : '';
+        alert(`Cell tower found using ${searchMethod}!\nCell ID: ${cellid}${lacInfo}\nNetwork: ${matchedTower.network}`);
     } else {
         alert(`No matching cell tower found for Cell ID: ${cellid}${lac ? ` and LAC: ${lac}` : ''}`);
     }
