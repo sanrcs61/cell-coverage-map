@@ -470,17 +470,23 @@ async function renderTimelineStep(index) {
 
     const lac = parseInt(record.lac);
     const cellid = parseInt(record.cellid);
-    let tower = operatorData.find(t => t.LAC === lac && t.CELLID === cellid);
-    if (!tower) tower = operatorData.find(t => t.CELLID === cellid);
+
+    // Support both mixed case (old robi.json) and lowercase (new data/robi.json)
+    let tower = operatorData.find(t =>
+        (parseInt(t.LAC || t.lac) === lac) && (parseInt(t.CELLID || t.cellid) === cellid)
+    );
+    if (!tower) tower = operatorData.find(t =>
+        parseInt(t.CELLID || t.cellid) === cellid
+    );
     if (!tower) {
         document.getElementById('tl-address').textContent = '⚠️ Cell not found in database';
         return;
     }
 
-    const lat = parseFloat(tower.LATITUDE);
-    const lon = parseFloat(tower.LONGITUDE);
-    const direction = tower.Direction || 0;
-    const network = record.network || tower.Network || '4G';
+    const lat = parseFloat(tower.LATITUDE || tower.lat);
+    const lon = parseFloat(tower.LONGITUDE || tower.lon);
+    const direction = tower.Direction || tower.direction || 0;
+    const network = record.network || tower.Network || tower.network || '4G';
 
     // Color by network type
     const networkColors = { '2G': '#FF6B6B', '3G': '#FFD93D', '4G': '#6BCB77' };
@@ -529,8 +535,9 @@ async function renderTimelineStep(index) {
         const op = cellTowerData[r.operator];
         if (!op) continue;
         const lac2 = parseInt(r.lac), cid2 = parseInt(r.cellid);
-        const t = op.find(x => x.LAC === lac2 && x.CELLID === cid2) || op.find(x => x.CELLID === cid2);
-        if (t) pathCoords.push([parseFloat(t.LATITUDE), parseFloat(t.LONGITUDE)]);
+        const t = op.find(x => (parseInt(x.LAC || x.lac) === lac2) && (parseInt(x.CELLID || x.cellid) === cid2))
+               || op.find(x => parseInt(x.CELLID || x.cellid) === cid2);
+        if (t) pathCoords.push([parseFloat(t.LATITUDE || t.lat), parseFloat(t.LONGITUDE || t.lon)]);
     }
     if (pathCoords.length > 1) {
         timelinePath = L.polyline(pathCoords, {
