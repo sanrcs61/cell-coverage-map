@@ -444,11 +444,134 @@ function parseCSVLine(line, delimiter) {
     return result;
 }
 
+// ── Tower cluster state ──
+let towerClusters = {};      // key: "lac_cellid" → { tower, records[], marker, sectorLayer }
+let activeSectorLayer = null;
+let currentHighlightMarker = null;
+
 function clearTimelineLayers() {
     timelineLayers.forEach(l => map.removeLayer(l));
     timelineLayers = [];
     if (timelineMarker) { map.removeLayer(timelineMarker); timelineMarker = null; }
     if (timelinePath) { map.removeLayer(timelinePath); timelinePath = null; }
+    if (activeSectorLayer) { map.removeLayer(activeSectorLayer); activeSectorLayer = null; }
+    if (currentHighlightMarker) { map.removeLayer(currentHighlightMarker); currentHighlightMarker = null; }
+    // Remove all cluster markers
+    Object.values(towerClusters).forEach(c => { if (c.marker) map.removeLayer(c.marker); });
+    towerClusters = {};
+}
+
+function findTower(operatorData, lac, cellid) {
+    const lacInt = parseInt(lac), cidInt = parseInt(cellid);
+    return operatorData.find(t =>
+        (parseInt(t.LAC || t.lac) === lacInt) && (parseInt(t.CELLID || t.cellid) === cidInt)
+    ) || operatorData.find(t => parseInt(t.CELLID || t.cellid) === cidInt);
+}
+
+function makeClusterIcon(count, isActive) {
+    const bg = isActive ? '#E53935' : '#1565C0';
+    const border = isActive ? '#ff8a80' : '#90CAF9';
+    return L.divIcon({
+        className: '',
+        html: `<div style="
+            background:${bg};
+            border: 3px solid ${border};
+            color: white;
+            font-weight: bold;
+            font-size: 13px;
+            width: 34px; height: 34px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            font-family: Arial, sans-serif;
+        ">${count}</div>`,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+    });
+}
+
+function showSectorForCluster(key) {
+    const cluster = towerClusters[key];
+    if (!cluster || !cluster.tower) return;
+
+    // Remove previous active sector
+    if (activeSectorLayer) { map.removeLayer(activeSectorLayer); activeSectorLayer = null; }
+
+    const tower = cluster.tower;
+    const lat = parseFloat(tower.LATITUDE || tower.lat);
+    const lon = parseFloat(tower.LONGITUDE || tower.lon);
+    const direction = parseFloat(tower.Direction || tower.direction || 0);
+
+    // Pick network from most recent record at this tower
+    const lastRecord = cluster.records[cluster.records.length - 1];
+    const network = lastRecord.network || tower.Network || tower.network || '4G';
+
+    const networkColors = { '2G': '#E53935', '3G': '#FB8C00', '4G': '#43A047' };
+    const color = networkColors[network] || '#43A047';
+
+    const radius = defaultSettings[network] ? defaultSettings[network].radius * 1000 : 500;
+    const beamWidth = defaultSettings[network] ? defaultSettings[network].beamWidth : 120;
+
+    // Draw a clean proper sector (wedge)
+    const sectorPoints = [];
+    const steps = 48;
+    const startAngle = (direction - beamWidth / 2) * Math.PI / 180;
+    const endAngle   = (direction + beamWidth / 2) * Math.PI / 180;
+    sectorPoints.push([lat, lon]);
+    for (let i = 0; i <= steps; i++) {
+        const angle = startAngle + (endAngle - startAngle) * (i / steps);
+        const sLat = lat + (radius * Math.cos(angle)) / 111320;
+        const sLon = lon + (radius * Math.sin(angle)) / (111320 * Math.cos(lat * Math.PI / 180));
+        sectorPoints.push([sLat, sLon]);
+    }
+    sectorPoints.push([lat, lon]);
+
+    // Direction arrow endpoint
+    const arrowRad = direction * Math.PI / 180;
+    const arrowLat = lat + (radius * 0.85 * Math.cos(arrowRad)) / 111320;
+    const arrowLon = lon + (radius * 0.85 * Math.sin(arrowRad)) / (111320 * Math.cos(lat * Math.PI / 180));
+
+    // Build popup content listing all records
+    const rows = cluster.records.map(r =>
+        `<tr>
+            <td style="padding:2px 6px;color:#555;font-size:11px;">${r.time.substring(8,14) || r.time}</td>
+            <td style="padding:2px 6px;font-size:11px;">${r.usage}</td>
+            <td style="padding:2px 6px;font-size:11px;">${r.duration ? r.duration+'s' : '-'}</td>
+        </tr>`
+    ).join('');
+
+    const popupHtml = `
+        <div style="min-width:200px;">
+            <b>📡 ${(lastRecord.operator || '').toUpperCase()} ${network}</b><br>
+            <span style="font-size:11px;color:#666;">LAC: ${lastRecord.lac} | Cell: ${lastRecord.cellid}</span><br>
+            <span style="font-size:11px;color:#666;">Direction: ${direction}° | Hits: <b>${cluster.records.length}</b></span><br>
+            ${lastRecord.address ? `<span style="font-size:10px;color:#888;">📍 ${lastRecord.address.substring(0,70)}</span><br>` : ''}
+            <table style="margin-top:6px;border-collapse:collapse;width:100%;">
+                <tr style="background:#f5f5f5;">
+                    <th style="padding:2px 6px;font-size:11px;text-align:left;">Time</th>
+                    <th style="padding:2px 6px;font-size:11px;text-align:left;">Type</th>
+                    <th style="padding:2px 6px;font-size:11px;text-align:left;">Dur</th>
+                </tr>
+                ${rows}
+            </table>
+        </div>`;
+
+    activeSectorLayer = L.featureGroup([
+        L.polygon(sectorPoints, {
+            color, fillColor: color,
+            fillOpacity: 0.25, weight: 2, opacity: 0.9
+        }),
+        L.polyline([[lat, lon], [arrowLat, arrowLon]], {
+            color, weight: 2.5, opacity: 1, dashArray: '6,3'
+        })
+    ]).addTo(map);
+
+    activeSectorLayer.bindPopup(popupHtml).openPopup();
+
+    // Update all marker icons — highlight active
+    Object.entries(towerClusters).forEach(([k, c]) => {
+        if (c.marker) c.marker.setIcon(makeClusterIcon(c.records.length, k === key));
+    });
 }
 
 async function renderTimelineStep(index) {
@@ -481,16 +604,7 @@ async function renderTimelineStep(index) {
     const operatorData = cellTowerData[record.operator];
     if (!operatorData) return;
 
-    const lac = parseInt(record.lac);
-    const cellid = parseInt(record.cellid);
-
-    // Support both mixed case (old robi.json) and lowercase (new data/robi.json)
-    let tower = operatorData.find(t =>
-        (parseInt(t.LAC || t.lac) === lac) && (parseInt(t.CELLID || t.cellid) === cellid)
-    );
-    if (!tower) tower = operatorData.find(t =>
-        parseInt(t.CELLID || t.cellid) === cellid
-    );
+    const tower = findTower(operatorData, record.lac, record.cellid);
     if (!tower) {
         document.getElementById('tl-address').textContent = '⚠️ Cell not found in database';
         return;
@@ -498,63 +612,55 @@ async function renderTimelineStep(index) {
 
     const lat = parseFloat(tower.LATITUDE || tower.lat);
     const lon = parseFloat(tower.LONGITUDE || tower.lon);
-    const direction = tower.Direction || tower.direction || 0;
-    const network = record.network || tower.Network || tower.network || '4G';
+    const clusterKey = `${record.lac}_${record.cellid}`;
 
-    // Color by network type
-    const networkColors = { '2G': '#FF6B6B', '3G': '#FFD93D', '4G': '#6BCB77' };
-    const color = networkColors[network] || '#6BCB77';
+    // Add or update cluster
+    if (!towerClusters[clusterKey]) {
+        towerClusters[clusterKey] = { tower, records: [], marker: null };
+    }
+    towerClusters[clusterKey].records.push(record);
+    const cluster = towerClusters[clusterKey];
+    const count = cluster.records.length;
 
-    const radius = defaultSettings[network] ? defaultSettings[network].radius * 1000 : 500;
-    const beamWidth = defaultSettings[network] ? defaultSettings[network].beamWidth : 120;
-    const points = calculateCoveragePoints(lat, lon, radius, direction, beamWidth);
-
-    // Remove previous step layer (keep path)
-    if (timelineLayers.length > 0) {
-        const last = timelineLayers[timelineLayers.length - 1];
-        // Fade previous sector to semi-transparent
-        last.eachLayer(l => {
-            if (l.setStyle) l.setStyle({ fillOpacity: 0.08, opacity: 0.2 });
-        });
+    // Create or update marker
+    if (!cluster.marker) {
+        cluster.marker = L.marker([lat, lon], { icon: makeClusterIcon(count, true) })
+            .addTo(map)
+            .on('click', () => showSectorForCluster(clusterKey));
+    } else {
+        cluster.marker.setIcon(makeClusterIcon(count, true));
     }
 
-    const sectorLayer = L.featureGroup([
-        L.polygon(points, { color, fillColor: color, fillOpacity: 0.35, weight: 2 }),
-        L.circleMarker([lat, lon], { radius: 6, color: 'white', fillColor: color, fillOpacity: 1, weight: 2 }),
-    ]).addTo(map);
+    // Reset all other markers to inactive
+    Object.entries(towerClusters).forEach(([k, c]) => {
+        if (k !== clusterKey && c.marker) {
+            c.marker.setIcon(makeClusterIcon(c.records.length, false));
+        }
+    });
 
-    sectorLayer.bindPopup(`
-        <b>${record.time}</b><br>
-        📡 ${record.operator.toUpperCase()} ${network}<br>
-        LAC: ${record.lac} | Cell: ${record.cellid}<br>
-        📞 ${record.usage} ${record.duration ? '(' + record.duration + 's)' : ''}<br>
-        ${record.address ? '📍 ' + record.address.substring(0, 60) + '...' : ''}
-    `);
+    // Show sector for current tower
+    showSectorForCluster(clusterKey);
 
-    timelineLayers.push(sectorLayer);
-
-    // Update moving marker
-    if (timelineMarker) map.removeLayer(timelineMarker);
-    timelineMarker = L.circleMarker([lat, lon], {
-        radius: 10, color: 'white', fillColor: '#FF4500',
-        fillOpacity: 1, weight: 3
-    }).addTo(map).bindPopup(`📍 Current: ${record.time}`);
-
-    // Draw path line through all visited points so far
+    // Draw path through all towers visited so far
     if (timelinePath) map.removeLayer(timelinePath);
     const pathCoords = [];
+    const seen = new Set();
     for (let i = 0; i <= index; i++) {
         const r = timelineData[i];
         const op = cellTowerData[r.operator];
         if (!op) continue;
-        const lac2 = parseInt(r.lac), cid2 = parseInt(r.cellid);
-        const t = op.find(x => (parseInt(x.LAC || x.lac) === lac2) && (parseInt(x.CELLID || x.cellid) === cid2))
-               || op.find(x => parseInt(x.CELLID || x.cellid) === cid2);
-        if (t) pathCoords.push([parseFloat(t.LATITUDE || t.lat), parseFloat(t.LONGITUDE || t.lon)]);
+        const t = findTower(op, r.lac, r.cellid);
+        if (t) {
+            const coord = `${t.LATITUDE || t.lat},${t.LONGITUDE || t.lon}`;
+            if (!seen.has(coord) || pathCoords.length === 0) {
+                pathCoords.push([parseFloat(t.LATITUDE || t.lat), parseFloat(t.LONGITUDE || t.lon)]);
+                seen.add(coord);
+            }
+        }
     }
     if (pathCoords.length > 1) {
         timelinePath = L.polyline(pathCoords, {
-            color: '#FF4500', weight: 2, opacity: 0.7, dashArray: '6,4'
+            color: '#E53935', weight: 2.5, opacity: 0.6, dashArray: '8,5'
         }).addTo(map);
     }
 
