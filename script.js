@@ -313,7 +313,7 @@ async function searchByCellInfo() {
   }
 
   try {
-    const url = `https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/data/${operator}.json`;
+    const url = `https://raw.githubusercontent.com/sanrcs61/cell-coverage-map/main/data/${operator}.json`;
     const response = await fetch(url);
     const data = await response.json();
 
