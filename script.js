@@ -343,65 +343,64 @@ function handleCDRFile(event) {
 }
 
 function parseCDR(text) {
+    // Remove BOM character if present
+    text = text.replace(/^\uFEFF/, '');
+
     const lines = text.trim().split('\n');
     if (lines.length < 2) {
         alert('CSV file appears to be empty or invalid.');
         return;
     }
 
-    // Parse header
-    const headers = lines[0].split('\t').map(h => h.trim());
+    // Auto-detect delimiter: tab or comma
+    const firstLine = lines[0];
+    const delimiter = firstLine.includes('\t') ? '\t' : ',';
 
-    const idxStart = headers.findIndex(h => h.toUpperCase() === 'START');
+    // Parse header respecting quoted fields
+    const headers = parseCSVLine(firstLine, delimiter).map(h => h.trim());
+
+    const idxStart    = headers.findIndex(h => h.toUpperCase() === 'START');
     const idxOperator = headers.findIndex(h => h.toUpperCase().includes('PROVIDER'));
-    const idxLAC = headers.findIndex(h => h.toUpperCase() === 'LACSTARTA');
-    const idxCELL = headers.findIndex(h => h.toUpperCase() === 'CISTARTA');
-    const idxNetwork = headers.findIndex(h => h.toUpperCase().includes('NETWORK'));
-    const idxUsage = headers.findIndex(h => h.toUpperCase().includes('USAGE'));
-    const idxAParty = headers.findIndex(h => h.toUpperCase() === 'APARTY');
-    const idxBParty = headers.findIndex(h => h.toUpperCase() === 'BPARTY');
+    const idxLAC      = headers.findIndex(h => h.toUpperCase() === 'LACSTARTA');
+    const idxCELL     = headers.findIndex(h => h.toUpperCase() === 'CISTARTA');
+    const idxNetwork  = headers.findIndex(h => h.toUpperCase() === 'NETWORK TYPE' || h.toUpperCase() === 'NETWORKTYPE');
+    const idxUsage    = headers.findIndex(h => h.toUpperCase() === 'USAGE TYPE' || h.toUpperCase() === 'USAGETYPE');
+    const idxAParty   = headers.findIndex(h => h.toUpperCase() === 'APARTY');
+    const idxBParty   = headers.findIndex(h => h.toUpperCase() === 'BPARTY');
     const idxDuration = headers.findIndex(h => h.toUpperCase().includes('DURATION'));
-    const idxAddress = headers.findIndex(h => h.toUpperCase() === 'ADDRESS' || h.toUpperCase().includes('ADDRESS'));
+    const idxAddress  = headers.findIndex(h => h.toUpperCase() === 'ADDRESS');
 
     if (idxStart === -1 || idxLAC === -1 || idxCELL === -1) {
-        alert('Could not find required columns (START, LACSTARTA, CISTARTA). Please check your CSV format.');
+        alert(`Could not find required columns.\nFound: ${headers.join(', ')}`);
         return;
     }
 
     const parsed = [];
     for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split('\t');
-        if (cols.length < 3) continue;
+        if (!lines[i].trim()) continue;
+        const cols = parseCSVLine(lines[i], delimiter);
 
-        const lac = cols[idxLAC] ? cols[idxLAC].trim() : '';
+        const lac    = cols[idxLAC]  ? cols[idxLAC].trim()  : '';
         const cellid = cols[idxCELL] ? cols[idxCELL].trim() : '';
-        const operator = idxOperator >= 0 ? (cols[idxOperator] || '').trim().toLowerCase() : '';
-        const network = idxNetwork >= 0 ? (cols[idxNetwork] || '4G').trim() : '4G';
-        const startRaw = cols[idxStart] ? cols[idxStart].trim() : '';
-        const usage = idxUsage >= 0 ? (cols[idxUsage] || '').trim() : '';
-        const aParty = idxAParty >= 0 ? (cols[idxAParty] || '').trim() : '';
-        const bParty = idxBParty >= 0 ? (cols[idxBParty] || '').trim() : '';
-        const duration = idxDuration >= 0 ? (cols[idxDuration] || '').trim() : '';
-        const address = idxAddress >= 0 ? (cols[idxAddress] || '').trim() : '';
-
         if (!lac || !cellid) continue;
 
-        // Map operator name to key
+        const operator = idxOperator >= 0 ? (cols[idxOperator] || '').trim().toLowerCase() : '';
+        const network  = idxNetwork  >= 0 ? (cols[idxNetwork]  || '4G').trim() : '4G';
+        const startRaw = cols[idxStart] ? cols[idxStart].trim() : '';
+        const usage    = idxUsage    >= 0 ? (cols[idxUsage]    || '').trim() : '';
+        const aParty   = idxAParty   >= 0 ? (cols[idxAParty]   || '').trim() : '';
+        const bParty   = idxBParty   >= 0 ? (cols[idxBParty]   || '').trim() : '';
+        const duration = idxDuration >= 0 ? (cols[idxDuration] || '').trim() : '';
+        const address  = idxAddress  >= 0 ? (cols[idxAddress]  || '').trim() : '';
+
         let operatorKey = 'robi';
         if (operator.includes('grameen') || operator.includes('gp')) operatorKey = 'grameenphone';
-        else if (operator.includes('robi')) operatorKey = 'robi';
+        else if (operator.includes('robi'))       operatorKey = 'robi';
         else if (operator.includes('banglalink') || operator.includes('bl')) operatorKey = 'banglalink';
-        else if (operator.includes('teletalk')) operatorKey = 'teletalk';
-        else if (operator.includes('airtel')) operatorKey = 'airtel';
+        else if (operator.includes('teletalk'))   operatorKey = 'teletalk';
+        else if (operator.includes('airtel'))     operatorKey = 'airtel';
 
-        parsed.push({
-            time: startRaw,
-            lac, cellid,
-            operator: operatorKey,
-            network, usage,
-            aParty, bParty,
-            duration, address
-        });
+        parsed.push({ time: startRaw, lac, cellid, operator: operatorKey, network, usage, aParty, bParty, duration, address });
     }
 
     if (parsed.length === 0) {
@@ -409,9 +408,7 @@ function parseCDR(text) {
         return;
     }
 
-    // Sort by time
     parsed.sort((a, b) => a.time.localeCompare(b.time));
-
     timelineData = parsed;
     timelineIndex = 0;
 
@@ -420,15 +417,31 @@ function parseCDR(text) {
     document.getElementById('timeline-slider').value = 0;
     document.getElementById('timeline-controls').style.display = 'block';
 
-    // Pre-load all operator data needed
     const operators = [...new Set(parsed.map(r => r.operator))];
-    operators.forEach(op => {
-        if (!cellTowerData[op]) loadOperatorData(op);
-    });
+    operators.forEach(op => { if (!cellTowerData[op]) loadOperatorData(op); });
 
-    // Draw all cells faintly first
     clearTimelineLayers();
     renderTimelineStep(0);
+}
+
+// Properly parse a CSV/TSV line respecting quoted fields
+function parseCSVLine(line, delimiter) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            inQuotes = !inQuotes;
+        } else if (ch === delimiter && !inQuotes) {
+            result.push(current);
+            current = '';
+        } else {
+            current += ch;
+        }
+    }
+    result.push(current);
+    return result;
 }
 
 function clearTimelineLayers() {
