@@ -16,10 +16,10 @@ let timelinePath = null;
 let isPlaying = false;
 
 const operatorDisclaimers = {
-    grameenphone: "মার্চ ২০২৬ পর্যন্ত কিছু জেলার তথ্য পাওয়া যাবে",
-    robi: "ফেব্রুয়ারী ২০২৬ পর্যন্ত কিছু জেলার 2G ও 4G সেলের তথ্য পাওয়া যাবে। 4G এর জন্য ল্যাক এর স্থলে ট্যাক এবং সেল আইডি এর স্থলে eNB ID ও LCID একসাথে লিখে ইনপুট দিতে হবে। যেমন: eNB ID: 620086 ও LCID 21 হলে ইনপুট দিতে হবে 62008621",
-    airtel: "রবির সমান",
-    banglalink: "আনুমানিক মার্চ ২০২৬ সাল পর্যন্ত  4G ও 2G সেলের তথ্য পাওয়া যাবে।",
+    grameenphone: "সেপ্টেম্বর ২০২৫ পর্যন্ত কিছু জেলার তথ্য পাওয়া যাবে",
+    robi: "অক্টোবর ২০২৫ সাল পর্যন্ত কিছু জেলার 2G ও 4G সেলের তথ্য পাওয়া যাবে। 4G এর জন্য ল্যাক এর স্থলে ট্যাক এবং সেল আইডি এর স্থলে eNB ID ও LCID একসাথে লিখে ইনপুট দিতে হবে। যেমন: eNB ID: 620086 ও LCID 21 হলে ইনপুট দিতে হবে 62008621",
+    airtel: "মার্চ ২০২৩ সাল পর্যন্ত শুধুমাত্র রাজশাহী জেলার 4G সেলের তথ্য পাওয়া যাবে। 4G এর জন্য ল্যাক এর স্থলে ট্যাক এবং সেল আইডি এর স্থলে eNB ID ও LCID একসাথে লিখে ইনপুট দিতে হবে। যেমন: eNB ID: 620086 ও LCID 21 হলে ইনপুট দিতে হবে 62008621",
+    banglalink: "আনুমানিক ২০২৪ সাল পর্যন্ত শুধুমাত্র রাজশাহী জেলার 4G ও 2G সেলের তথ্য পাওয়া যাবে।",
     teletalk: "এখনো কোনো ডাটা আপলোড করা হয়নি"
 };
 
@@ -492,7 +492,9 @@ function plotAllRecords() {
         if (!op) continue;
         const tower = findTower(op, r.lac, r.cellid);
         if (!tower) continue;
-        const key = `${r.lac}_${r.cellid}`;
+        const tLat = parseFloat(tower.LATITUDE || tower.lat);
+        const tLon = parseFloat(tower.LONGITUDE || tower.lon);
+        const key = makeLocationKey(tLat, tLon);
         if (!towerClusters[key]) {
             towerClusters[key] = { tower, records: [], marker: null };
         }
@@ -515,7 +517,12 @@ function plotAllRecords() {
     drawPath(timelineIndex);
 
     // Show active sector
-    const activeKey = `${timelineData[timelineIndex]?.lac}_${timelineData[timelineIndex]?.cellid}`;
+    const _activeRec = timelineData[timelineIndex];
+    const _activeOp = _activeRec ? cellTowerData[_activeRec.operator] : null;
+    const _activeTower = _activeOp ? findTower(_activeOp, _activeRec.lac, _activeRec.cellid) : null;
+    const activeKey = _activeTower
+        ? makeLocationKey(parseFloat(_activeTower.LATITUDE || _activeTower.lat), parseFloat(_activeTower.LONGITUDE || _activeTower.lon))
+        : null;
     if (towerClusters[activeKey]) showSectorForCluster(activeKey);
 }
 
@@ -595,6 +602,14 @@ function findTower(operatorData, lac, cellid) {
     ) || operatorData.find(t => parseInt(t.CELLID || t.cellid) === cidInt);
 }
 
+// Round lat/lon to ~50m grid to group physically co-located towers
+// 0.0005 degrees ≈ 55 meters — close enough to merge 2G/4G on same mast
+function makeLocationKey(lat, lon) {
+    const rLat = Math.round(parseFloat(lat) / 0.0005) * 0.0005;
+    const rLon = Math.round(parseFloat(lon) / 0.0005) * 0.0005;
+    return `${rLat.toFixed(4)}_${rLon.toFixed(4)}`;
+}
+
 function makeClusterIcon(count, isActive) {
     const bg = isActive ? '#E53935' : '#1565C0';
     const border = isActive ? '#ff8a80' : '#90CAF9';
@@ -671,7 +686,7 @@ function showSectorForCluster(key) {
     const popupHtml = `
         <div style="min-width:200px;">
             <b>📡 ${(lastRecord.operator || '').toUpperCase()} ${network}</b><br>
-            <span style="font-size:11px;color:#666;">LAC: ${lastRecord.lac} | Cell: ${lastRecord.cellid}</span><br>
+            <span style="font-size:11px;color:#666;">Cells: ${[...new Set(cluster.records.map(r=>r.cellid))].join(', ')}</span><br>
             <span style="font-size:11px;color:#666;">Direction: ${direction}° | Hits: <b>${cluster.records.length}</b></span><br>
             ${lastRecord.address ? `<span style="font-size:10px;color:#888;">📍 ${lastRecord.address.substring(0,70)}</span><br>` : ''}
             <table style="margin-top:6px;border-collapse:collapse;width:100%;">
@@ -724,7 +739,7 @@ async function renderTimelineStep(index) {
 
     const lat = parseFloat(tower.LATITUDE || tower.lat);
     const lon = parseFloat(tower.LONGITUDE || tower.lon);
-    const clusterKey = `${record.lac}_${record.cellid}`;
+    const clusterKey = makeLocationKey(lat, lon);
 
     // Only add this record to cluster if stepping forward (not already counted)
     if (!towerClusters[clusterKey]) {
@@ -814,12 +829,19 @@ function plotAllRecordsUpTo(upToIndex) {
         if (!op) continue;
         const tower = findTower(op, r.lac, r.cellid);
         if (!tower) continue;
-        const key = `${r.lac}_${r.cellid}`;
+        const tLat2 = parseFloat(tower.LATITUDE || tower.lat);
+        const tLon2 = parseFloat(tower.LONGITUDE || tower.lon);
+        const key = makeLocationKey(tLat2, tLon2);
         if (!towerClusters[key]) towerClusters[key] = { tower, records: [], marker: null };
         towerClusters[key].records.push(r);
     }
 
-    const activeKey = `${timelineData[upToIndex]?.lac}_${timelineData[upToIndex]?.cellid}`;
+    const _upRec = timelineData[upToIndex];
+    const _upOp = _upRec ? cellTowerData[_upRec.operator] : null;
+    const _upTower = _upOp ? findTower(_upOp, _upRec.lac, _upRec.cellid) : null;
+    const activeKey = _upTower
+        ? makeLocationKey(parseFloat(_upTower.LATITUDE || _upTower.lat), parseFloat(_upTower.LONGITUDE || _upTower.lon))
+        : null;
 
     Object.entries(towerClusters).forEach(([key, cluster]) => {
         const tower = cluster.tower;
