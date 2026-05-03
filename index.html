@@ -237,6 +237,14 @@
                     <div id="timeline-status">No file loaded</div>
 
                     <div id="timeline-controls">
+                        <!-- Filter row -->
+                        <div class="tl-speed-row" style="margin-bottom:8px;">
+                            <label>🔽 Filter:</label>
+                            <select id="tl-filter-usage" onchange="applyFilter()" style="flex:1;">
+                                <option value="">All Types</option>
+                            </select>
+                        </div>
+
                         <input type="range" id="timeline-slider" min="0" max="0" value="0"
                                oninput="timelineSliderChange(this.value)">
                         <div id="tl-counter">0 / 0</div>
@@ -256,6 +264,7 @@
                             <button id="tl-play-btn" onclick="isPlaying ? timelinePause() : timelinePlay()">▶ Play</button>
                             <button class="tl-btn-next" onclick="timelineNext()">Next ⏭</button>
                         </div>
+                        <button onclick="timelineLoadAll()" style="background:#6A1B9A;margin-bottom:6px;">📌 Load All on Map</button>
                         <button class="tl-clear-btn" onclick="clearTimeline()">🗑 Clear Timeline</button>
 
                         <!-- Info panel -->
@@ -267,6 +276,7 @@
                                 <tr><td>LAC</td><td id="tl-lac">-</td></tr>
                                 <tr><td>Cell</td><td id="tl-cell">-</td></tr>
                                 <tr><td>📞 Type</td><td id="tl-usage">-</td></tr>
+                                <tr><td>📲 B-Party</td><td id="tl-bparty">-</td></tr>
                                 <tr><td>⏱ Dur</td><td id="tl-duration">-</td></tr>
                                 <tr><td>📍 Addr</td><td id="tl-address">-</td></tr>
                             </table>

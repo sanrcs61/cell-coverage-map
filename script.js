@@ -7,6 +7,7 @@ let cookieConsent = false;
 
 // Timeline playback variables
 let timelineData = [];
+let timelineAllData = [];
 let timelineIndex = 0;
 let timelineInterval = null;
 let timelineLayers = [];
@@ -15,10 +16,10 @@ let timelinePath = null;
 let isPlaying = false;
 
 const operatorDisclaimers = {
-    grameenphone: "সেপ্টেম্বর ২০২৫ পর্যন্ত কিছু জেলার তথ্য পাওয়া যাবে",
-    robi: "অক্টোবর ২০২৫ সাল পর্যন্ত কিছু জেলার 2G ও 4G সেলের তথ্য পাওয়া যাবে। 4G এর জন্য ল্যাক এর স্থলে ট্যাক এবং সেল আইডি এর স্থলে eNB ID ও LCID একসাথে লিখে ইনপুট দিতে হবে। যেমন: eNB ID: 620086 ও LCID 21 হলে ইনপুট দিতে হবে 62008621",
-    airtel: "মার্চ ২০২৩ সাল পর্যন্ত শুধুমাত্র রাজশাহী জেলার 4G সেলের তথ্য পাওয়া যাবে। 4G এর জন্য ল্যাক এর স্থলে ট্যাক এবং সেল আইডি এর স্থলে eNB ID ও LCID একসাথে লিখে ইনপুট দিতে হবে। যেমন: eNB ID: 620086 ও LCID 21 হলে ইনপুট দিতে হবে 62008621",
-    banglalink: "আনুমানিক ২০২৪ সাল পর্যন্ত শুধুমাত্র রাজশাহী জেলার 4G ও 2G সেলের তথ্য পাওয়া যাবে।",
+    grameenphone: "মার্চ ২০২৬ পর্যন্ত কিছু জেলার তথ্য পাওয়া যাবে",
+    robi: "ফেব্রুয়ারী ২০২৬ পর্যন্ত কিছু জেলার 2G ও 4G সেলের তথ্য পাওয়া যাবে। 4G এর জন্য ল্যাক এর স্থলে ট্যাক এবং সেল আইডি এর স্থলে eNB ID ও LCID একসাথে লিখে ইনপুট দিতে হবে। যেমন: eNB ID: 620086 ও LCID 21 হলে ইনপুট দিতে হবে 62008621",
+    airtel: "রবির সমান",
+    banglalink: "আনুমানিক মার্চ ২০২৬ সাল পর্যন্ত  4G ও 2G সেলের তথ্য পাওয়া যাবে।",
     teletalk: "এখনো কোনো ডাটা আপলোড করা হয়নি"
 };
 
@@ -409,8 +410,12 @@ function parseCDR(text) {
     }
 
     parsed.sort((a, b) => a.time.localeCompare(b.time));
+    timelineAllData = parsed;   // keep full unfiltered set
     timelineData = parsed;
     timelineIndex = 0;
+
+    // Populate filter dropdowns
+    populateFilters(parsed);
 
     document.getElementById('timeline-status').textContent = `✅ Loaded ${parsed.length} CDR records`;
     document.getElementById('timeline-slider').max = parsed.length - 1;
@@ -420,8 +425,98 @@ function parseCDR(text) {
     const operators = [...new Set(parsed.map(r => r.operator))];
     operators.forEach(op => { if (!cellTowerData[op]) loadOperatorData(op); });
 
+    // Pre-load tower data then plot ALL records at once
+    Promise.all(operators.map(op => waitForOperatorData(op))).then(() => {
+        clearTimelineLayers();
+        plotAllRecords();
+        updateInfoPanel(parsed[0], 0);
+    });
+}
+
+function waitForOperatorData(operator) {
+    if (cellTowerData[operator]) return Promise.resolve();
+    return new Promise(resolve => {
+        loadOperatorData(operator);
+        const check = setInterval(() => {
+            if (cellTowerData[operator]) { clearInterval(check); resolve(); }
+        }, 300);
+        setTimeout(() => { clearInterval(check); resolve(); }, 6000);
+    });
+}
+
+function populateFilters(data) {
+    const usageTypes = [...new Set(data.map(r => r.usage).filter(Boolean))];
+    const sel = document.getElementById('tl-filter-usage');
+    sel.innerHTML = '<option value="">All Types</option>';
+    usageTypes.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u; opt.textContent = u;
+        sel.appendChild(opt);
+    });
+}
+
+function applyFilter() {
+    const usageFilter = document.getElementById('tl-filter-usage').value;
+    timelineData = usageFilter
+        ? timelineAllData.filter(r => r.usage === usageFilter)
+        : timelineAllData;
+    timelineIndex = 0;
+    document.getElementById('timeline-slider').max = timelineData.length - 1;
+    document.getElementById('timeline-slider').value = 0;
+    document.getElementById('timeline-status').textContent =
+        `✅ Showing ${timelineData.length} of ${timelineAllData.length} records`;
     clearTimelineLayers();
-    renderTimelineStep(0);
+    plotAllRecords();
+    if (timelineData.length > 0) updateInfoPanel(timelineData[0], 0);
+}
+
+function formatTime(raw) {
+    // Input: YYYYMMDDHHmmss or YYYY-MM-DD HH:mm:ss or similar
+    if (!raw) return '-';
+    const s = raw.replace(/\D/g, ''); // strip non-digits
+    if (s.length >= 14) {
+        const dd = s.substring(6,8), mm = s.substring(4,6), yyyy = s.substring(0,4);
+        const hh = s.substring(8,10), min = s.substring(10,12), sec = s.substring(12,14);
+        return `${dd}-${mm}-${yyyy} ${hh}:${min}:${sec}`;
+    }
+    return raw;
+}
+
+// Plot ALL records as cluster markers at once (no step-by-step needed)
+function plotAllRecords() {
+    // Build clusters from ALL timelineData up to current index
+    towerClusters = {};
+    for (let i = 0; i <= timelineIndex; i++) {
+        const r = timelineData[i];
+        const op = cellTowerData[r.operator];
+        if (!op) continue;
+        const tower = findTower(op, r.lac, r.cellid);
+        if (!tower) continue;
+        const key = `${r.lac}_${r.cellid}`;
+        if (!towerClusters[key]) {
+            towerClusters[key] = { tower, records: [], marker: null };
+        }
+        towerClusters[key].records.push(r);
+    }
+
+    // Draw markers
+    Object.entries(towerClusters).forEach(([key, cluster]) => {
+        const tower = cluster.tower;
+        const lat = parseFloat(tower.LATITUDE || tower.lat);
+        const lon = parseFloat(tower.LONGITUDE || tower.lon);
+        const isActive = (key === `${timelineData[timelineIndex]?.lac}_${timelineData[timelineIndex]?.cellid}`);
+        cluster.marker = L.marker([lat, lon], { icon: makeClusterIcon(cluster.records.length, isActive) })
+            .addTo(map)
+            .on('click', () => showSectorForCluster(key));
+        timelineLayers.push(cluster.marker);
+    });
+
+    // Draw path
+    drawPath(timelineIndex);
+
+    // Show active sector
+    const activeKey = `${timelineData[timelineIndex]?.lac}_${timelineData[timelineIndex]?.cellid}`;
+    if (towerClusters[activeKey]) showSectorForCluster(activeKey);
 }
 
 // Properly parse a CSV/TSV line respecting quoted fields
@@ -456,9 +551,41 @@ function clearTimelineLayers() {
     if (timelinePath) { map.removeLayer(timelinePath); timelinePath = null; }
     if (activeSectorLayer) { map.removeLayer(activeSectorLayer); activeSectorLayer = null; }
     if (currentHighlightMarker) { map.removeLayer(currentHighlightMarker); currentHighlightMarker = null; }
-    // Remove all cluster markers
     Object.values(towerClusters).forEach(c => { if (c.marker) map.removeLayer(c.marker); });
     towerClusters = {};
+}
+
+// Extract path coords up to index without dedup (preserve actual movement)
+function drawPath(upToIndex) {
+    if (timelinePath) { map.removeLayer(timelinePath); timelinePath = null; }
+    const pathCoords = [];
+    for (let i = 0; i <= upToIndex; i++) {
+        const r = timelineData[i];
+        const op = cellTowerData[r.operator];
+        if (!op) continue;
+        const t = findTower(op, r.lac, r.cellid);
+        if (t) pathCoords.push([parseFloat(t.LATITUDE || t.lat), parseFloat(t.LONGITUDE || t.lon)]);
+    }
+    if (pathCoords.length > 1) {
+        timelinePath = L.polyline(pathCoords, {
+            color: '#E53935', weight: 2.5, opacity: 0.65, dashArray: '8,5'
+        }).addTo(map);
+    }
+}
+
+function updateInfoPanel(record, index) {
+    if (!record) return;
+    document.getElementById('tl-time').textContent = formatTime(record.time);
+    document.getElementById('tl-operator').textContent = record.operator || '-';
+    document.getElementById('tl-network').textContent = record.network || '-';
+    document.getElementById('tl-lac').textContent = record.lac || '-';
+    document.getElementById('tl-cell').textContent = record.cellid || '-';
+    document.getElementById('tl-usage').textContent = record.usage || '-';
+    document.getElementById('tl-bparty').textContent = record.bParty || '-';
+    document.getElementById('tl-duration').textContent = record.duration ? record.duration + 's' : '-';
+    document.getElementById('tl-address').textContent = record.address || '-';
+    document.getElementById('tl-counter').textContent = `${index + 1} / ${timelineData.length}`;
+    document.getElementById('timeline-slider').value = index;
 }
 
 function findTower(operatorData, lac, cellid) {
@@ -534,8 +661,9 @@ function showSectorForCluster(key) {
     // Build popup content listing all records
     const rows = cluster.records.map(r =>
         `<tr>
-            <td style="padding:2px 6px;color:#555;font-size:11px;">${r.time.substring(8,14) || r.time}</td>
+            <td style="padding:2px 6px;color:#555;font-size:11px;">${formatTime(r.time)}</td>
             <td style="padding:2px 6px;font-size:11px;">${r.usage}</td>
+            <td style="padding:2px 6px;font-size:11px;">${r.bParty || '-'}</td>
             <td style="padding:2px 6px;font-size:11px;">${r.duration ? r.duration+'s' : '-'}</td>
         </tr>`
     ).join('');
@@ -550,6 +678,7 @@ function showSectorForCluster(key) {
                 <tr style="background:#f5f5f5;">
                     <th style="padding:2px 6px;font-size:11px;text-align:left;">Time</th>
                     <th style="padding:2px 6px;font-size:11px;text-align:left;">Type</th>
+                    <th style="padding:2px 6px;font-size:11px;text-align:left;">B-Party</th>
                     <th style="padding:2px 6px;font-size:11px;text-align:left;">Dur</th>
                 </tr>
                 ${rows}
@@ -578,27 +707,10 @@ async function renderTimelineStep(index) {
     if (!timelineData.length) return;
     const record = timelineData[index];
 
-    // Update info panel
-    document.getElementById('tl-time').textContent = record.time || '-';
-    document.getElementById('tl-operator').textContent = record.operator || '-';
-    document.getElementById('tl-network').textContent = record.network || '-';
-    document.getElementById('tl-lac').textContent = record.lac || '-';
-    document.getElementById('tl-cell').textContent = record.cellid || '-';
-    document.getElementById('tl-usage').textContent = record.usage || '-';
-    document.getElementById('tl-duration').textContent = record.duration ? record.duration + 's' : '-';
-    document.getElementById('tl-address').textContent = record.address || '-';
-    document.getElementById('tl-counter').textContent = `${index + 1} / ${timelineData.length}`;
-    document.getElementById('timeline-slider').value = index;
+    updateInfoPanel(record, index);
 
-    // Load operator data if needed
     if (!cellTowerData[record.operator]) {
-        await new Promise(resolve => {
-            const check = setInterval(() => {
-                if (cellTowerData[record.operator]) { clearInterval(check); resolve(); }
-            }, 300);
-            loadOperatorData(record.operator);
-            setTimeout(() => { clearInterval(check); resolve(); }, 5000);
-        });
+        await waitForOperatorData(record.operator);
     }
 
     const operatorData = cellTowerData[record.operator];
@@ -614,56 +726,34 @@ async function renderTimelineStep(index) {
     const lon = parseFloat(tower.LONGITUDE || tower.lon);
     const clusterKey = `${record.lac}_${record.cellid}`;
 
-    // Add or update cluster
+    // Only add this record to cluster if stepping forward (not already counted)
     if (!towerClusters[clusterKey]) {
         towerClusters[clusterKey] = { tower, records: [], marker: null };
     }
-    towerClusters[clusterKey].records.push(record);
-    const cluster = towerClusters[clusterKey];
-    const count = cluster.records.length;
+    // Avoid double-counting: only add if this is truly a new step forward
+    const alreadyCounted = towerClusters[clusterKey].records.some(r => r === record);
+    if (!alreadyCounted) {
+        towerClusters[clusterKey].records.push(record);
+    }
 
-    // Create or update marker
+    const cluster = towerClusters[clusterKey];
+
     if (!cluster.marker) {
-        cluster.marker = L.marker([lat, lon], { icon: makeClusterIcon(count, true) })
+        cluster.marker = L.marker([lat, lon], { icon: makeClusterIcon(cluster.records.length, true) })
             .addTo(map)
             .on('click', () => showSectorForCluster(clusterKey));
+        timelineLayers.push(cluster.marker);
     } else {
-        cluster.marker.setIcon(makeClusterIcon(count, true));
+        cluster.marker.setIcon(makeClusterIcon(cluster.records.length, true));
     }
 
-    // Reset all other markers to inactive
+    // Deactivate all other markers
     Object.entries(towerClusters).forEach(([k, c]) => {
-        if (k !== clusterKey && c.marker) {
-            c.marker.setIcon(makeClusterIcon(c.records.length, false));
-        }
+        if (k !== clusterKey && c.marker) c.marker.setIcon(makeClusterIcon(c.records.length, false));
     });
 
-    // Show sector for current tower
     showSectorForCluster(clusterKey);
-
-    // Draw path through all towers visited so far
-    if (timelinePath) map.removeLayer(timelinePath);
-    const pathCoords = [];
-    const seen = new Set();
-    for (let i = 0; i <= index; i++) {
-        const r = timelineData[i];
-        const op = cellTowerData[r.operator];
-        if (!op) continue;
-        const t = findTower(op, r.lac, r.cellid);
-        if (t) {
-            const coord = `${t.LATITUDE || t.lat},${t.LONGITUDE || t.lon}`;
-            if (!seen.has(coord) || pathCoords.length === 0) {
-                pathCoords.push([parseFloat(t.LATITUDE || t.lat), parseFloat(t.LONGITUDE || t.lon)]);
-                seen.add(coord);
-            }
-        }
-    }
-    if (pathCoords.length > 1) {
-        timelinePath = L.polyline(pathCoords, {
-            color: '#E53935', weight: 2.5, opacity: 0.6, dashArray: '8,5'
-        }).addTo(map);
-    }
-
+    drawPath(index);
     map.setView([lat, lon], 14);
 }
 
@@ -710,13 +800,52 @@ function timelinePrev() {
 function timelineSliderChange(val) {
     timelinePause();
     timelineIndex = parseInt(val);
-    renderTimelineStep(timelineIndex);
+    // Rebuild clusters from scratch up to this index (slider can go backwards)
+    clearTimelineLayers();
+    plotAllRecordsUpTo(timelineIndex);
+}
+
+// Plot all records up to a given index — used when slider jumps
+function plotAllRecordsUpTo(upToIndex) {
+    towerClusters = {};
+    for (let i = 0; i <= upToIndex; i++) {
+        const r = timelineData[i];
+        const op = cellTowerData[r.operator];
+        if (!op) continue;
+        const tower = findTower(op, r.lac, r.cellid);
+        if (!tower) continue;
+        const key = `${r.lac}_${r.cellid}`;
+        if (!towerClusters[key]) towerClusters[key] = { tower, records: [], marker: null };
+        towerClusters[key].records.push(r);
+    }
+
+    const activeKey = `${timelineData[upToIndex]?.lac}_${timelineData[upToIndex]?.cellid}`;
+
+    Object.entries(towerClusters).forEach(([key, cluster]) => {
+        const tower = cluster.tower;
+        const lat = parseFloat(tower.LATITUDE || tower.lat);
+        const lon = parseFloat(tower.LONGITUDE || tower.lon);
+        const isActive = key === activeKey;
+        cluster.marker = L.marker([lat, lon], { icon: makeClusterIcon(cluster.records.length, isActive) })
+            .addTo(map)
+            .on('click', () => showSectorForCluster(key));
+        timelineLayers.push(cluster.marker);
+    });
+
+    drawPath(upToIndex);
+    if (towerClusters[activeKey]) showSectorForCluster(activeKey);
+    if (timelineData[upToIndex]) {
+        updateInfoPanel(timelineData[upToIndex], upToIndex);
+        const t = towerClusters[activeKey]?.tower;
+        if (t) map.setView([parseFloat(t.LATITUDE || t.lat), parseFloat(t.LONGITUDE || t.lon)], 14);
+    }
 }
 
 function clearTimeline() {
     timelinePause();
     clearTimelineLayers();
     timelineData = [];
+    timelineAllData = [];
     timelineIndex = 0;
     document.getElementById('timeline-status').textContent = 'No file loaded';
     document.getElementById('timeline-controls').style.display = 'none';
@@ -726,8 +855,10 @@ function clearTimeline() {
     document.getElementById('tl-lac').textContent = '-';
     document.getElementById('tl-cell').textContent = '-';
     document.getElementById('tl-usage').textContent = '-';
+    document.getElementById('tl-bparty').textContent = '-';
     document.getElementById('tl-duration').textContent = '-';
     document.getElementById('tl-address').textContent = '-';
+    document.getElementById('tl-filter-usage').innerHTML = '<option value="">All Types</option>';
     document.getElementById('cdr-file-input').value = '';
 }
 
@@ -738,3 +869,12 @@ window.addEventListener('load', () => {
     loadOperatorData('grameenphone');
     showCookieNotice();
 });
+
+// Load all records onto map at once (jump to end)
+function timelineLoadAll() {
+    timelinePause();
+    timelineIndex = timelineData.length - 1;
+    clearTimelineLayers();
+    plotAllRecordsUpTo(timelineIndex);
+    document.getElementById('timeline-slider').value = timelineIndex;
+}
