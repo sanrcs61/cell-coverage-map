@@ -136,7 +136,7 @@
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container" style="display:none;">
         <div class="controls">
             <h2 align="center">Cell direction calculator by Shakil</h2>
             <h6 style="color: red;" align="center">Disclaimer: This is not final yet. Use with caution!</h6>
@@ -296,6 +296,20 @@
         <p style="margin: 0; padding: 0;">এই ওয়েবসাইট ব্যবহার করতে আপনাকে লোকেশন পারমিশন দিতে হবে। লোকেশন পারমিশন না দিলে অনেকসময় এটি ভুল তথ্য দিতে পারে তাই অনুগ্রহ করে Accept এ ট্যাপ করুন এবং পরবর্তীতে Get My Location এ ট্যাপ করুন।
         <button onclick="acceptCookies()" style="margin: 0 10px; padding: 5px 15px;">Accept</button>
         <button onclick="acceptCookies()" style="padding: 5px 15px;">Decline</button></p>
+    </div>
+
+    <!-- Loading screen -->
+    <div id="loading-screen">
+        <div class="loading-spinner"></div>
+        <div class="screen-title">Cell Coverage Map</div>
+        <div class="screen-message" id="loading-message">শুরু হচ্ছে...</div>
+    </div>
+
+    <!-- Block screen -->
+    <div id="block-screen">
+        <div class="screen-icon" id="block-icon">🚫</div>
+        <div class="screen-title">অ্যাক্সেস সীমাবদ্ধ</div>
+        <div class="screen-message" id="block-message"></div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.js"></script>
