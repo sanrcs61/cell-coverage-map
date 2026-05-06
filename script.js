@@ -904,7 +904,7 @@ function timelineLoadAll() {
 // ─────────────────────────────────────────────
 
 const BD_BOUNDS = { minLat: 20.7472, maxLat: 26.6375, minLon: 88.0833, maxLon: 92.6810 };
-const LOG_URL = 'https://script.google.com/macros/s/AKfycbzh7Yc1Prl60v_1iluXyyH8iDpQnD2urK3v0Gm6JR7BcEgHJ-jAarjRbMLfwP5OX7S8/exec'; // <-- paste your Apps Script URL here
+const LOG_URL = 'YOUR_APPS_SCRIPT_WEB_APP_URL'; // <-- paste your Apps Script URL here
 
 function isInsideBangladesh(lat, lon) {
     return lat >= BD_BOUNDS.minLat && lat <= BD_BOUNDS.maxLat &&
@@ -932,13 +932,65 @@ function hideLoadingScreen() {
     document.getElementById('loading-screen').style.display = 'none';
 }
 
+// Try multiple IP lookup services with fallback
 async function getIPInfo() {
-    try {
-        const res = await fetch('https://ipapi.co/json/');
-        return await res.json();
-    } catch {
-        return null;
+    const services = [
+        async () => {
+            const r = await fetch('https://ipwho.is/');
+            const d = await r.json();
+            if (!d.success) throw new Error('failed');
+            return {
+                ip: d.ip,
+                country_name: d.country,
+                country_code: d.country_code,
+                city: d.city,
+                region: d.region,
+                org: d.connection?.org || '',
+                latitude: d.latitude,
+                longitude: d.longitude
+            };
+        },
+        async () => {
+            const r = await fetch('https://ip-api.com/json/?fields=status,country,countryCode,regionName,city,org,lat,lon,query');
+            const d = await r.json();
+            if (d.status !== 'success') throw new Error('failed');
+            return {
+                ip: d.query,
+                country_name: d.country,
+                country_code: d.countryCode,
+                city: d.city,
+                region: d.regionName,
+                org: d.org,
+                latitude: d.lat,
+                longitude: d.lon
+            };
+        },
+        async () => {
+            const r = await fetch('https://ipapi.co/json/');
+            const d = await r.json();
+            if (d.error) throw new Error('failed');
+            return {
+                ip: d.ip,
+                country_name: d.country_name,
+                country_code: d.country_code,
+                city: d.city,
+                region: d.region,
+                org: d.org,
+                latitude: d.latitude,
+                longitude: d.longitude
+            };
+        }
+    ];
+
+    for (const service of services) {
+        try {
+            const result = await service();
+            if (result && result.ip) return result;
+        } catch (e) {
+            continue;
+        }
     }
+    return null; // all failed — allow GPS check to decide
 }
 
 function logVisitor(ipInfo, gpsLat, gpsLon, status) {
@@ -963,26 +1015,39 @@ function logVisitor(ipInfo, gpsLat, gpsLon, status) {
 }
 
 async function securityGate() {
-    showLoadingScreen('Checking access...');
+    showLoadingScreen('একটু অপেক্ষা করুন...');
 
     // ── Step 1: Check IP-based country ──
+    showLoadingScreen('আইপি যাচাই করা হচ্ছে...');
     const ipInfo = await getIPInfo();
     const ipCountry = ipInfo?.country_code || '';
 
-    if (ipCountry && ipCountry !== 'BD') {
+    // Only block if IP check clearly shows non-BD country
+    // If IP lookup fails (null), skip IP check and rely on GPS
+    if (ipInfo && ipCountry && ipCountry !== 'BD') {
         logVisitor(ipInfo, null, null, 'BLOCKED_IP');
         hideLoadingScreen();
-        showBlockScreen('এই সাইটটি শুধুমাত্র বাংলাদেশ থেকে অ্যাক্সেস করা যাবে।\n\nThis site is only accessible from Bangladesh.', '🌍');
+        showBlockScreen(
+            'আপনার আইপি ঠিকানা বাংলাদেশের বাইরে থেকে দেখাচ্ছে।\n' +
+            'This site is only accessible from Bangladesh.\n\n' +
+            'আইপি: ' + (ipInfo.ip || 'unknown') + '\n' +
+            'দেশ: ' + (ipInfo.country_name || 'unknown'),
+            '🌍'
+        );
         return;
     }
 
     // ── Step 2: Request GPS location ──
-    showLoadingScreen('লোকেশন পারমিশন দিন...');
+    showLoadingScreen('লোকেশন পারমিশন প্রয়োজন...');
 
     if (!navigator.geolocation) {
         logVisitor(ipInfo, null, null, 'BLOCKED_NO_GEOLOCATION');
         hideLoadingScreen();
-        showBlockScreen('আপনার ডিভাইস লোকেশন সাপোর্ট করে না।', '📵');
+        showBlockScreen(
+            'আপনার ডিভাইস বা ব্রাউজার লোকেশন সাপোর্ট করে না।\n\n' +
+            'দয়া করে একটি আধুনিক ব্রাউজার ব্যবহার করুন।',
+            '📵'
+        );
         return;
     }
 
@@ -995,7 +1060,12 @@ async function securityGate() {
             if (!isInsideBangladesh(gpsLat, gpsLon)) {
                 logVisitor(ipInfo, gpsLat, gpsLon, 'BLOCKED_GPS_OUTSIDE_BD');
                 hideLoadingScreen();
-                showBlockScreen('আপনার লোকেশন বাংলাদেশের বাইরে।\n\nYour GPS location is outside Bangladesh.', '📍');
+                showBlockScreen(
+                    'আপনার লোকেশন বাংলাদেশের বাইরে দেখাচ্ছে।\n' +
+                    'Your GPS location is outside Bangladesh.\n\n' +
+                    'অবস্থান: ' + gpsLat.toFixed(4) + ', ' + gpsLon.toFixed(4),
+                    '📍'
+                );
                 return;
             }
 
@@ -1003,16 +1073,12 @@ async function securityGate() {
             logVisitor(ipInfo, gpsLat, gpsLon, 'ALLOWED');
             hideLoadingScreen();
 
-            // Show app
             document.querySelector('.container').style.display = '';
             showCookieNotice();
-
-            // Init map and data
             initMap();
             updateOperatorDisclaimer();
             loadOperatorData('grameenphone');
 
-            // Place user marker
             try {
                 userLocationMarker = L.marker([gpsLat, gpsLon]).addTo(map);
                 userLocationMarker.bindPopup('আপনার অবস্থান').openPopup();
@@ -1021,13 +1087,31 @@ async function securityGate() {
         },
         (error) => {
             let status = 'BLOCKED_LOCATION_DENIED';
-            let msg = 'এই সাইট ব্যবহার করতে লোকেশন পারমিশন দিতে হবে।\n\nPlease enable location permission to use this site.';
-            let icon = '📍';
+            let msg, icon;
+
             if (error.code === error.PERMISSION_DENIED) {
-                status = 'BLOCKED_LOCATION_DENIED';
-                msg = 'লোকেশন পারমিশন বন্ধ আছে। সাইট ব্যবহার করতে লোকেশন চালু করুন।';
+                msg = '🔒 লোকেশন পারমিশন বন্ধ আছে।\n\n' +
+                      'সাইট ব্যবহার করতে লোকেশন পারমিশন দিতে হবে।\n\n' +
+                      'করণীয়:\n' +
+                      '• ব্রাউজারের অ্যাড্রেস বারে 🔒 আইকনে ট্যাপ করুন\n' +
+                      '• Location → Allow করুন\n' +
+                      '• পেজ রিফ্রেশ করুন';
                 icon = '🔒';
+            } else if (error.code === error.POSITION_UNAVAILABLE) {
+                status = 'BLOCKED_LOCATION_UNAVAILABLE';
+                msg = '📡 লোকেশন তথ্য পাওয়া যাচ্ছে না।\n\n' +
+                      'GPS বা নেটওয়ার্ক লোকেশন চালু করুন এবং আবার চেষ্টা করুন।';
+                icon = '📡';
+            } else if (error.code === error.TIMEOUT) {
+                status = 'BLOCKED_LOCATION_TIMEOUT';
+                msg = '⏱ লোকেশন পেতে অনেক সময় লাগছে।\n\n' +
+                      'GPS সিগন্যাল দুর্বল। বাইরে গিয়ে আবার চেষ্টা করুন।';
+                icon = '⏱';
+            } else {
+                msg = '❌ লোকেশন সংক্রান্ত সমস্যা হয়েছে।\n\nপেজ রিফ্রেশ করে আবার চেষ্টা করুন।';
+                icon = '❌';
             }
+
             logVisitor(ipInfo, null, null, status);
             hideLoadingScreen();
             showBlockScreen(msg, icon);
