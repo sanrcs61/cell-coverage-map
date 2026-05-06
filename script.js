@@ -1019,21 +1019,28 @@ function logVisitor(ipInfo, gpsLat, gpsLon, status) {
     if (!LOG_URL || LOG_URL.includes('YOUR_APPS_SCRIPT')) return;
     const params = new URLSearchParams({
         action: 'logVisitor',
-        ip: ipInfo?.ip || 'unknown',
-        country: ipInfo?.country_name || 'unknown',
-        country_code: ipInfo?.country_code || 'unknown',
-        city: ipInfo?.city || 'unknown',
-        region: ipInfo?.region || 'unknown',
-        isp: ipInfo?.org || 'unknown',
-        ip_lat: ipInfo?.latitude || '',
-        ip_lon: ipInfo?.longitude || '',
+        ip: (ipInfo && ipInfo.ip) ? ipInfo.ip : 'unknown',
+        country: (ipInfo && ipInfo.country_name) ? ipInfo.country_name : 'unknown',
+        country_code: (ipInfo && ipInfo.country_code) ? ipInfo.country_code : 'unknown',
+        city: (ipInfo && ipInfo.city) ? ipInfo.city : 'unknown',
+        region: (ipInfo && ipInfo.region) ? ipInfo.region : 'unknown',
+        isp: (ipInfo && ipInfo.org) ? ipInfo.org : 'unknown',
+        ip_lat: (ipInfo && ipInfo.latitude) ? ipInfo.latitude : '',
+        ip_lon: (ipInfo && ipInfo.longitude) ? ipInfo.longitude : '',
         gps_lat: gpsLat || '',
         gps_lon: gpsLon || '',
         status: status,
         timestamp: new Date().toISOString(),
         userAgent: navigator.userAgent.substring(0, 100)
     });
-    fetch(`${LOG_URL}?${params.toString()}`, { method: 'GET', mode: 'no-cors' }).catch(() => {});
+
+    // Use Image beacon — bypasses CORS entirely, works perfectly with Apps Script doGet
+    const img = new Image();
+    img.src = `${LOG_URL}?${params.toString()}`;
+
+    // Also try fetch as backup
+    fetch(`${LOG_URL}?${params.toString()}`)
+        .catch(() => {});
 }
 
 async function securityGate() {
@@ -1140,4 +1147,15 @@ async function securityGate() {
         },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
+}
+
+// ── Debug: call this from browser console to test logging ──
+// Type testLog() in browser console after page loads
+function testLog() {
+    logVisitor(
+        { ip: '1.2.3.4', country_name: 'Bangladesh', country_code: 'BD', city: 'Rajshahi', region: 'Rajshahi Division', org: 'Test ISP', latitude: 24.36, longitude: 88.61 },
+        24.36, 88.61,
+        'TEST'
+    );
+    console.log('Test log sent — check your Visitors sheet in ~5 seconds');
 }
