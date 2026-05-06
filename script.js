@@ -1037,10 +1037,6 @@ function logVisitor(ipInfo, gpsLat, gpsLon, status) {
     // Use Image beacon — bypasses CORS entirely, works perfectly with Apps Script doGet
     const img = new Image();
     img.src = `${LOG_URL}?${params.toString()}`;
-
-    // Also try fetch as backup
-    fetch(`${LOG_URL}?${params.toString()}`)
-        .catch(() => {});
 }
 
 async function securityGate() {
