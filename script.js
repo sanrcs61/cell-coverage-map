@@ -935,6 +935,7 @@ function hideLoadingScreen() {
 // Try multiple IP lookup services with fallback
 async function getIPInfo() {
     const services = [
+        // Service 1: ipwho.is — free, no key, HTTPS OK
         async () => {
             const r = await fetch('https://ipwho.is/');
             const d = await r.json();
@@ -945,26 +946,12 @@ async function getIPInfo() {
                 country_code: d.country_code,
                 city: d.city,
                 region: d.region,
-                org: d.connection?.org || '',
+                org: d.connection && (d.connection.isp || d.connection.org || d.connection.domain) || '',
                 latitude: d.latitude,
                 longitude: d.longitude
             };
         },
-        async () => {
-            const r = await fetch('https://ip-api.com/json/?fields=status,country,countryCode,regionName,city,org,lat,lon,query');
-            const d = await r.json();
-            if (d.status !== 'success') throw new Error('failed');
-            return {
-                ip: d.query,
-                country_name: d.country,
-                country_code: d.countryCode,
-                city: d.city,
-                region: d.regionName,
-                org: d.org,
-                latitude: d.lat,
-                longitude: d.lon
-            };
-        },
+        // Service 2: ipapi.co — HTTPS OK
         async () => {
             const r = await fetch('https://ipapi.co/json/');
             const d = await r.json();
@@ -978,6 +965,41 @@ async function getIPInfo() {
                 org: d.org,
                 latitude: d.latitude,
                 longitude: d.longitude
+            };
+        },
+        // Service 3: freeipapi.com — HTTPS OK, generous limits
+        async () => {
+            const r = await fetch('https://freeipapi.com/api/json');
+            const d = await r.json();
+            if (!d.ipAddress) throw new Error('failed');
+            return {
+                ip: d.ipAddress,
+                country_name: d.countryName,
+                country_code: d.countryCode,
+                city: d.cityName,
+                region: d.regionName,
+                org: d.isp || '',
+                latitude: d.latitude,
+                longitude: d.longitude
+            };
+        },
+        // Service 4: ip.sb — just country code, minimal fallback
+        async () => {
+            const [ipRes, countryRes] = await Promise.all([
+                fetch('https://api.ip.sb/ip'),
+                fetch('https://api.ip.sb/geoip')
+            ]);
+            const ip = (await ipRes.text()).trim();
+            const geo = await countryRes.json();
+            return {
+                ip: ip,
+                country_name: geo.country || '',
+                country_code: geo.country_code || '',
+                city: geo.city || '',
+                region: geo.region || '',
+                org: geo.isp || geo.organization || '',
+                latitude: geo.latitude || '',
+                longitude: geo.longitude || ''
             };
         }
     ];
