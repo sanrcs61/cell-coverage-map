@@ -904,7 +904,7 @@ function timelineLoadAll() {
 // ─────────────────────────────────────────────
 
 const BD_BOUNDS = { minLat: 20.7472, maxLat: 26.6375, minLon: 88.0833, maxLon: 92.6810 };
-const LOG_URL = 'https://script.google.com/macros/s/AKfycbzmVZhElY_rwlpSrw2tn6siMb0rBlRA3lR9Zb49P7Kx7T8Pgzu1_ormGdiotFbzQSA9/exec'; // <-- paste your Apps Script URL here
+const LOG_URL = 'https://script.google.com/macros/s/AKfycbztLbBdB8kRg2stf53jb7BWT1AvLyxe-nubDZYEj7ujf9T_8GQ9bdemBqJKUWoP_7YH/exec'; // <-- paste your Apps Script URL here
 
 function isInsideBangladesh(lat, lon) {
     return lat >= BD_BOUNDS.minLat && lat <= BD_BOUNDS.maxLat &&
