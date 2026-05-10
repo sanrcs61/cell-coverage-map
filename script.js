@@ -904,7 +904,7 @@ function timelineLoadAll() {
 // ─────────────────────────────────────────────
 
 const BD_BOUNDS = { minLat: 20.7472, maxLat: 26.6375, minLon: 88.0833, maxLon: 92.6810 };
-const LOG_URL = 'https://script.google.com/macros/s/AKfycbztLbBdB8kRg2stf53jb7BWT1AvLyxe-nubDZYEj7ujf9T_8GQ9bdemBqJKUWoP_7YH/exec'; // <-- paste your Apps Script URL here
+const LOG_URL = 'https://script.google.com/macros/s/AKfycbzh7Yc1Prl60v_1iluXyyH8iDpQnD2urK3v0Gm6JR7BcEgHJ-jAarjRbMLfwP5OX7S8/exec'; // <-- paste your Apps Script URL here
 
 function isInsideBangladesh(lat, lon) {
     return lat >= BD_BOUNDS.minLat && lat <= BD_BOUNDS.maxLat &&
@@ -934,15 +934,85 @@ function hideLoadingScreen() {
 
 // Try multiple IP lookup services with fallback
 async function getIPInfo() {
-    // Route through Apps Script to avoid CORS — Apps Script fetches IP info server-side
-    try {
-        const r = await fetch(`${LOG_URL}?action=getIPInfo`);
-        const d = await r.json();
-        if (d && d.ip) return d;
-    } catch (e) {
-        console.warn('IP lookup failed:', e);
+    const services = [
+        // Service 1: ipwho.is — free, no key, HTTPS OK
+        async () => {
+            const r = await fetch('https://ipwho.is/');
+            const d = await r.json();
+            if (!d.success) throw new Error('failed');
+            return {
+                ip: d.ip,
+                country_name: d.country,
+                country_code: d.country_code,
+                city: d.city,
+                region: d.region,
+                org: d.connection && (d.connection.isp || d.connection.org || d.connection.domain) || '',
+                latitude: d.latitude,
+                longitude: d.longitude
+            };
+        },
+        // Service 2: ipapi.co — HTTPS OK
+        async () => {
+            const r = await fetch('https://ipapi.co/json/');
+            const d = await r.json();
+            if (d.error) throw new Error('failed');
+            return {
+                ip: d.ip,
+                country_name: d.country_name,
+                country_code: d.country_code,
+                city: d.city,
+                region: d.region,
+                org: d.org,
+                latitude: d.latitude,
+                longitude: d.longitude
+            };
+        },
+        // Service 3: freeipapi.com — HTTPS OK, generous limits
+        async () => {
+            const r = await fetch('https://freeipapi.com/api/json');
+            const d = await r.json();
+            if (!d.ipAddress) throw new Error('failed');
+            return {
+                ip: d.ipAddress,
+                country_name: d.countryName,
+                country_code: d.countryCode,
+                city: d.cityName,
+                region: d.regionName,
+                org: d.isp || '',
+                latitude: d.latitude,
+                longitude: d.longitude
+            };
+        },
+        // Service 4: ip.sb — just country code, minimal fallback
+        async () => {
+            const [ipRes, countryRes] = await Promise.all([
+                fetch('https://api.ip.sb/ip'),
+                fetch('https://api.ip.sb/geoip')
+            ]);
+            const ip = (await ipRes.text()).trim();
+            const geo = await countryRes.json();
+            return {
+                ip: ip,
+                country_name: geo.country || '',
+                country_code: geo.country_code || '',
+                city: geo.city || '',
+                region: geo.region || '',
+                org: geo.isp || geo.organization || '',
+                latitude: geo.latitude || '',
+                longitude: geo.longitude || ''
+            };
+        }
+    ];
+
+    for (const service of services) {
+        try {
+            const result = await service();
+            if (result && result.ip) return result;
+        } catch (e) {
+            continue;
+        }
     }
-    return null; // GPS check will still run
+    return null; // all failed — allow GPS check to decide
 }
 
 function logVisitor(ipInfo, gpsLat, gpsLon, status) {
