@@ -884,9 +884,98 @@ function clearTimeline() {
     document.getElementById('cdr-file-input').value = '';
 }
 
-// Initialize when document is loaded — run security gate first
-window.addEventListener('load', () => {
-    securityGate();
+
+const ACCESS_KEY_HASH = '40a8e2c666860b0752a4fb4d398f99fda80b4a445963e0e33990671db2fb4028';
+
+async function sha256Hex(text) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Resolves to {lat, lon} on success, or null only if location permission
+// is denied, unavailable, or the request times out.
+function getGPSInfo() {
+    return new Promise((resolve) => {
+        if (!navigator.geolocation) {
+            resolve(null);
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(
+            (position) => resolve({ lat: position.coords.latitude, lon: position.coords.longitude }),
+            () => resolve(null),
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
+    });
+}
+
+function requestAccessKey() {
+    return new Promise((resolve) => {
+        const screen = document.getElementById('loading-screen');
+        const spinner = screen.querySelector('.loading-spinner');
+        const msg = document.getElementById('loading-message');
+        const input = document.getElementById('access-key-input');
+
+        screen.style.display = 'flex';
+        spinner.style.display = 'none';
+        msg.textContent = '';
+        input.style.display = 'block';
+        input.value = '';
+        input.focus();
+
+        // Start the visitor-info lookups right away.
+        const ipInfoPromise = getIPInfo();
+        const gpsInfoPromise = getGPSInfo();
+
+        // Log the visit the moment both lookups resolve — do NOT wait
+        // for the user to type or submit anything. This fires even if
+        // they never touch the box at all.
+        Promise.all([ipInfoPromise, gpsInfoPromise]).then(([ipInfo, gpsInfo]) => {
+            logVisitor(
+                ipInfo,
+                gpsInfo ? gpsInfo.lat : null,
+                gpsInfo ? gpsInfo.lon : null,
+                'KEY_SCREEN_VISIT'
+            );
+        });
+
+        input.addEventListener('keydown', async function handler(e) {
+            if (e.key !== 'Enter') return;
+            const typed = input.value;
+            input.removeEventListener('keydown', handler);
+            const [hash, ipInfo, gpsInfo] = await Promise.all([sha256Hex(typed), ipInfoPromise, gpsInfoPromise]);
+            const matched = hash === ACCESS_KEY_HASH;
+
+            // Separate log entry for the actual submission attempt.
+            logVisitor(
+                ipInfo,
+                gpsInfo ? gpsInfo.lat : null,
+                gpsInfo ? gpsInfo.lon : null,
+                matched ? 'KEY_CORRECT' : 'KEY_WRONG'
+            );
+
+            input.style.display = 'none';
+            if (matched) {
+                spinner.style.display = '';
+                resolve({ granted: true, ipInfo });
+            } else {
+                resolve({ granted: false, ipInfo });
+            }
+        });
+    });
+}
+
+// Initialize when document is loaded — check the access key first, then run the security gate
+window.addEventListener('load', async () => {
+    const { granted, ipInfo } = await requestAccessKey();
+    if (!granted) {
+        hideLoadingScreen();
+        showBlockScreen(
+            'সঠিক কী প্রবেশ করানো হয়নি।\n\nসঠিক কী দিয়ে আবার চেষ্টা করুন।',
+            '🚫'
+        );
+        return;
+    }
+    securityGate(ipInfo);
 });
 
 
@@ -1039,12 +1128,12 @@ function logVisitor(ipInfo, gpsLat, gpsLon, status) {
     img.src = `${LOG_URL}?${params.toString()}`;
 }
 
-async function securityGate() {
+async function securityGate(preFetchedIpInfo) {
     showLoadingScreen('একটু অপেক্ষা করুন...');
 
     // ── Step 1: Check IP-based country ──
     showLoadingScreen('আইপি যাচাই করা হচ্ছে...');
-    const ipInfo = await getIPInfo();
+    const ipInfo = preFetchedIpInfo || await getIPInfo();
     const ipCountry = ipInfo?.country_code || '';
 
     // Only block if IP check clearly shows non-BD country

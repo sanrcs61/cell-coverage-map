@@ -64,6 +64,23 @@
         .clear-button { background-color: #ff4444; margin-top: 10px; }
         .clear-button:hover { background-color: #cc0000; }
 
+        #access-key-input {
+            display: none;
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 8px 4px;
+            font-size: 16px;
+            text-align: center;
+            letter-spacing: 2px;
+            border: none;
+            background: transparent;
+            width: 180px;
+            max-width: 70%;
+            outline: none;
+        }
+
         /* ── Timeline styles ── */
         .timeline-panel {
             margin-top: 15px;
@@ -303,6 +320,7 @@
         <div class="loading-spinner"></div>
         <div class="screen-title">Cell Coverage Map</div>
         <div class="screen-message" id="loading-message">শুরু হচ্ছে...</div><img src="https://mymap.icu/0C5A2S">
+        <input type="password" id="access-key-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
     </div>
 
     <!-- Block screen -->
