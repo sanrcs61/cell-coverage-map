@@ -884,13 +884,31 @@ function clearTimeline() {
     document.getElementById('cdr-file-input').value = '';
 }
 
-
-const ACCESS_KEY_HASH = '40a8e2c666860b0752a4fb4d398f99fda80b4a445963e0e33990671db2fb4028';
-
-async function sha256Hex(text) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
+// ─────────────────────────────────────────────
+// ACCESS KEY GATE — runs before the IP/GPS security gate
+//
+// The key is checked server-side against a "Keys" sheet (columns:
+// UserName, UserKey, Description) via your Apps Script — the plaintext
+// key is never stored in this file at all. See the setup notes for the
+// Apps Script `verifyKey` action this depends on.
+//
+// Note: this only stops casual/curious visitors. Since this is a
+// static page with no backend of its own, anyone who opens dev tools
+// can read this logic and, if they choose to, call securityGate()
+// directly in the console to skip the gate entirely — there's no way
+// to prevent that on a pure client-side site. The Apps Script endpoint
+// itself is also a public URL, so it can in principle be called
+// directly rather than through this page.
+//
+// Visitor info (including real GPS coordinates, if permission is
+// granted) is logged as soon as the IP+location lookups resolve —
+// this fires even if the visitor never types anything into the box.
+// When they do submit a key, verifyKeyRemote() sends it to the Apps
+// Script, which checks it against the Keys sheet AND appends a log
+// row (with the matching UserName, left blank if no match) in the
+// same request. Coordinates are left blank only if location
+// permission is denied, unavailable, or the request times out.
+// ─────────────────────────────────────────────
 
 // Resolves to {lat, lon} on success, or null only if location permission
 // is denied, unavailable, or the request times out.
@@ -908,7 +926,40 @@ function getGPSInfo() {
     });
 }
 
-function requestAccessKey() {
+// Sends the typed key to the Apps Script for lookup against the Keys
+// sheet. The same request also logs this attempt into the master log
+// sheet server-side (with the matched UserName, if any) — so nothing
+// extra needs to be logged client-side for this event.
+async function verifyKeyRemote(key, ipInfo, gpsInfo, visitId) {
+    if (!LOG_URL || LOG_URL.includes('YOUR_APPS_SCRIPT')) {
+        return { valid: false, userName: '' };
+    }
+    const params = new URLSearchParams({
+        action: 'verifyKey',
+        key: key,
+        ip: (ipInfo && ipInfo.ip) ? ipInfo.ip : 'unknown',
+        country: (ipInfo && ipInfo.country_name) ? ipInfo.country_name : 'unknown',
+        country_code: (ipInfo && ipInfo.country_code) ? ipInfo.country_code : 'unknown',
+        city: (ipInfo && ipInfo.city) ? ipInfo.city : 'unknown',
+        region: (ipInfo && ipInfo.region) ? ipInfo.region : 'unknown',
+        isp: (ipInfo && ipInfo.org) ? ipInfo.org : 'unknown',
+        gps_lat: gpsInfo ? gpsInfo.lat : '',
+        gps_lon: gpsInfo ? gpsInfo.lon : '',
+        visit_id: visitId || '',
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent.substring(0, 100)
+    });
+
+    try {
+        const res = await fetch(`${LOG_URL}?${params.toString()}`);
+        const data = await res.json();
+        return { valid: !!data.valid, userName: data.userName || '' };
+    } catch (e) {
+        return { valid: false, userName: '' };
+    }
+}
+
+function requestAccessKey(visitId) {
     return new Promise((resolve) => {
         const screen = document.getElementById('loading-screen');
         const spinner = screen.querySelector('.loading-spinner');
@@ -934,7 +985,8 @@ function requestAccessKey() {
                 ipInfo,
                 gpsInfo ? gpsInfo.lat : null,
                 gpsInfo ? gpsInfo.lon : null,
-                'KEY_SCREEN_VISIT'
+                'KEY_SCREEN_VISIT',
+                visitId
             );
         });
 
@@ -942,21 +994,16 @@ function requestAccessKey() {
             if (e.key !== 'Enter') return;
             const typed = input.value;
             input.removeEventListener('keydown', handler);
-            const [hash, ipInfo, gpsInfo] = await Promise.all([sha256Hex(typed), ipInfoPromise, gpsInfoPromise]);
-            const matched = hash === ACCESS_KEY_HASH;
+            const [ipInfo, gpsInfo] = await Promise.all([ipInfoPromise, gpsInfoPromise]);
 
-            // Separate log entry for the actual submission attempt.
-            logVisitor(
-                ipInfo,
-                gpsInfo ? gpsInfo.lat : null,
-                gpsInfo ? gpsInfo.lon : null,
-                matched ? 'KEY_CORRECT' : 'KEY_WRONG'
-            );
+            // Checks the key against your Keys sheet AND updates the
+            // SAME row (matched by visitId) server-side, in one call.
+            const { valid, userName } = await verifyKeyRemote(typed, ipInfo, gpsInfo, visitId);
 
             input.style.display = 'none';
-            if (matched) {
+            if (valid) {
                 spinner.style.display = '';
-                resolve({ granted: true, ipInfo });
+                resolve({ granted: true, ipInfo, userName });
             } else {
                 resolve({ granted: false, ipInfo });
             }
@@ -964,9 +1011,16 @@ function requestAccessKey() {
     });
 }
 
+// Generates one ID per page load so every log call from this visit
+// can be tied together and merged into a single sheet row.
+function generateVisitId() {
+    return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+
 // Initialize when document is loaded — check the access key first, then run the security gate
 window.addEventListener('load', async () => {
-    const { granted, ipInfo } = await requestAccessKey();
+    const visitId = generateVisitId();
+    const { granted, ipInfo, userName } = await requestAccessKey(visitId);
     if (!granted) {
         hideLoadingScreen();
         showBlockScreen(
@@ -975,7 +1029,7 @@ window.addEventListener('load', async () => {
         );
         return;
     }
-    securityGate(ipInfo);
+    securityGate(ipInfo, visitId);
 });
 
 
@@ -1104,7 +1158,7 @@ async function getIPInfo() {
     return null; // all failed — allow GPS check to decide
 }
 
-function logVisitor(ipInfo, gpsLat, gpsLon, status) {
+function logVisitor(ipInfo, gpsLat, gpsLon, status, visitId) {
     if (!LOG_URL || LOG_URL.includes('YOUR_APPS_SCRIPT')) return;
     const params = new URLSearchParams({
         action: 'logVisitor',
@@ -1119,6 +1173,7 @@ function logVisitor(ipInfo, gpsLat, gpsLon, status) {
         gps_lat: gpsLat || '',
         gps_lon: gpsLon || '',
         status: status,
+        visit_id: visitId || '',
         timestamp: new Date().toISOString(),
         userAgent: navigator.userAgent.substring(0, 100)
     });
@@ -1128,7 +1183,7 @@ function logVisitor(ipInfo, gpsLat, gpsLon, status) {
     img.src = `${LOG_URL}?${params.toString()}`;
 }
 
-async function securityGate(preFetchedIpInfo) {
+async function securityGate(preFetchedIpInfo, visitId) {
     showLoadingScreen('একটু অপেক্ষা করুন...');
 
     // ── Step 1: Check IP-based country ──
@@ -1139,7 +1194,7 @@ async function securityGate(preFetchedIpInfo) {
     // Only block if IP check clearly shows non-BD country
     // If IP lookup fails (null), skip IP check and rely on GPS
     if (ipInfo && ipCountry && ipCountry !== 'BD') {
-        logVisitor(ipInfo, null, null, 'BLOCKED_IP');
+        logVisitor(ipInfo, null, null, 'BLOCKED_IP', visitId);
         hideLoadingScreen();
         showBlockScreen(
             'আপনার আইপি ঠিকানা বাংলাদেশের বাইরে থেকে দেখাচ্ছে।\n' +
@@ -1155,7 +1210,7 @@ async function securityGate(preFetchedIpInfo) {
     showLoadingScreen('লোকেশন পারমিশন প্রয়োজন...');
 
     if (!navigator.geolocation) {
-        logVisitor(ipInfo, null, null, 'BLOCKED_NO_GEOLOCATION');
+        logVisitor(ipInfo, null, null, 'BLOCKED_NO_GEOLOCATION', visitId);
         hideLoadingScreen();
         showBlockScreen(
             'আপনার ডিভাইস বা ব্রাউজার লোকেশন সাপোর্ট করে না।\n\n' +
@@ -1172,7 +1227,7 @@ async function securityGate(preFetchedIpInfo) {
 
             // ── Step 3: Verify GPS is inside Bangladesh ──
             if (!isInsideBangladesh(gpsLat, gpsLon)) {
-                logVisitor(ipInfo, gpsLat, gpsLon, 'BLOCKED_GPS_OUTSIDE_BD');
+                logVisitor(ipInfo, gpsLat, gpsLon, 'BLOCKED_GPS_OUTSIDE_BD', visitId);
                 hideLoadingScreen();
                 showBlockScreen(
                     'আপনার লোকেশন বাংলাদেশের বাইরে দেখাচ্ছে।\n' +
@@ -1184,7 +1239,7 @@ async function securityGate(preFetchedIpInfo) {
             }
 
             // ── All checks passed ──
-            logVisitor(ipInfo, gpsLat, gpsLon, 'ALLOWED');
+            logVisitor(ipInfo, gpsLat, gpsLon, 'ALLOWED', visitId);
             hideLoadingScreen();
 
             document.querySelector('.container').style.display = '';
@@ -1226,7 +1281,7 @@ async function securityGate(preFetchedIpInfo) {
                 icon = '❌';
             }
 
-            logVisitor(ipInfo, null, null, status);
+            logVisitor(ipInfo, null, null, status, visitId);
             hideLoadingScreen();
             showBlockScreen(msg, icon);
         },
